@@ -4,14 +4,20 @@ Provides CLI and service entry points for processing browser extension sessions.
 """
 
 import asyncio
+from pathlib import Path
 from uuid import UUID
 
 import typer
+from dotenv import load_dotenv
 from typing_extensions import Annotated
 
 from src.lib.logging import configure_logging, get_logger
 from src.services.coordination import enqueue_session
 from src.services.orchestrator import process_next_session, process_session
+
+# Load environment variables from .env file in project root
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 app = typer.Typer(help="WebForms File Processor - AI-powered session analysis")
 

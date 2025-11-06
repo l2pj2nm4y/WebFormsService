@@ -39,22 +39,31 @@ pytest tests/ -v
 
 ### Usage
 
+**Important:** All commands must be run using `poetry run` to ensure the virtual environment and dependencies are loaded correctly.
+
 **Process a specific session:**
 
 ```bash
-python -m src.main process 550e8400-e29b-41d4-a716-446655440000
+poetry run python -m src.main process 550e8400-e29b-41d4-a716-446655440000
 ```
 
 **Run as continuous worker:**
 
 ```bash
-python -m src.main worker
+poetry run python -m src.main worker
 ```
 
 **Add session to queue:**
 
 ```bash
-python -m src.main enqueue 550e8400-e29b-41d4-a716-446655440000
+poetry run python -m src.main enqueue 550e8400-e29b-41d4-a716-446655440000
+```
+
+**Note:** If you encounter "Field required" errors for `OPENROUTER_API_KEY`, ensure your `.env` file exists in the project root with the correct API key, or set the environment variable directly:
+
+```bash
+export OPENROUTER_API_KEY=your-api-key-here
+poetry run python -m src.main process <session-id>
 ```
 
 ## Implementation Status
