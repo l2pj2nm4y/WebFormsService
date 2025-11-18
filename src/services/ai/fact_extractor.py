@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from pydantic_ai import Agent
+from pydantic_ai.messages import ImageUrl
 from pydantic_ai.models.openai import OpenAIChatModel
 
 from src.lib.config import get_config
@@ -17,21 +18,83 @@ from src.models.fact import FactFile
 
 logger = get_logger(__name__)
 
-# System prompt for fact extraction
-FACT_EXTRACTION_SYSTEM_PROMPT = """You are an expert at analyzing webpage screenshots to extract identification facts for page matching.
+# System prompt for fact extraction - EXACT format as specified
+FACT_EXTRACTION_SYSTEM_PROMPT = """<role>
+You are an expert at analysing webpage screenshots to extract page identification facts and constructing JSON.
+</role>
 
-Your task is to analyze the provided screenshot and extract structured information that uniquely identifies this page.
+<objective>
+Analyse the form screenshots provided in the user prompt and generate a comprehensive JSON data structure representing key identification facts that could be used for page matching. You'll be given screenshots and the page URL.
+</objective>
 
-Focus on:
-1. **Visual Headings**: Main headings, titles, or labels visible at the top or prominent positions (up to 5)
-2. **Visual Sections**: Describe the layout sections you can see (header, main content, sidebar, footer, navigation, etc.)
-3. **Form Elements**: Identify if there are forms, what types of input fields are visible, and button labels
-4. **Layout Pattern**: Describe the overall page layout and structure
-5. **Content Keywords**: 3-5 key terms that describe the page's purpose or content
+<critical_requirements>
+    <requirement priority="1">Only include information you can actually observe in the screenshot</requirement>
+    <requirement priority="2">Follow the EXACT format specified</requirement>
+</critical_requirements>
 
-Prioritize stable visual elements over dynamic content. Focus on what makes this page recognizable across different form-filling sessions.
+<analysis_scope>
 
-Output must be valid JSON matching the FactFile schema."""
+<scratchpad>
+Analyze the screenshot systematically:
+- What are the most prominent headings or titles you can see?
+- How is the page visually organized (sections/layout)?
+- Is there any progress indication or page number?
+- Are there any page navigation buttons (next, previous, submit, home, etc)?
+</scratchpad>
+</analysis_scope>
+
+<example_format>
+{
+  "url": "abc.com",
+  "scratchpad": "Looking at this screenshot, I can observe:\n\nProminent Headings/Titles:\n- \"Online Lodgement\" at the top right\n- \"Australian citizenship by descent\" in the left panel\n- \"Applicant\" section\n- \"Applicant details\"\n- \"Other names, dates of birth or gender\"\n- \"Passport details\"\n- \"National identity card\"\n- \"Other passports and documents for travel\"\n- \"Place of birth\"\n- \"Surrogacy\"\n- \"Adoption\"\n- \"Citizenship details\"\n- \"Chinese commercial code\"\n- \"Australian licences\"\n- \"Related Links\" in the right sidebar\n- \"Help and Support\" in the right sidebar\n\nVisual Organization:\n- Three-column layout with dark blue header, left navigation panel, main content area in the center, and sidebar on the right\n- The main content area contains a long form with multiple sections organized vertically\n- Progress indicator showing \"3/20\" near the top\n- Right sidebar has related links and help resources\n- Footer with navigation buttons and accessibility links\n- Australian Government Department of Home Affairs branding at the top\n\nForms and Interactive Elements:\n- This is a government citizenship application form\n- Text input fields for: Title (dropdown with \"Mr\" selected), Family name (Fleming), Given names (Robert Arthur), Town/City (Sydney), State/Province (New South Wales)\n- Dropdown menus for: Title, Country of birth (AUSTRIA)\n- Radio buttons for: Sex (Female/Male/Other with Male selected), Yes/No questions for passport, identity card, travel documents, Australia entry/departure, surrogacy, adoption, citizenship, Chinese commercial code, driver licence, firearms licence\n- Date picker field showing \"04 Mar 1979\"\n- Data table showing \"Other names\" with columns: Family name, Given names, Sex, Date of birth, Actions\n- Table contains two entries: Fleming/Rob/Male/4 Mar 1979 and Flemington/Roberta/Female/4 Mar 1979\n- \"Add\" button below the table\n- \"Edit\" and \"Delete\" links in the Actions column\n- Navigation buttons at bottom: \"Previous\", \"Save\", \"Print\", \"Go to my account\", \"Next\"\n- Information icons (i) next to various fields providing help\n\nLayout Pattern:\n- Three-column government form layout\n- Long-form questionnaire style\n- Progressive disclosure with sections\n- Transaction reference number displayed: \"EGP8ISOADN\"",
+  "page_headings": [
+    "Online Lodgement",
+    "Australian citizenship by descent"
+  ],
+  "form_headings": [
+    "Applicant",
+    "Applicant details",
+    "Other names, dates of birth or gender",
+    "Passport details",
+    "National identity card",
+    "Other passports and documents for travel",
+    "Place of birth",
+    "Surrogacy",
+    "Adoption",
+    "Citizenship details",
+    "Chinese commercial code",
+    "Australian licences"
+  ],
+  "visual_sections": [
+    "header",
+    "left_navigation_panel",
+    "main_content_form",
+    "right_sidebar_related_links",
+    "right_sidebar_help_support",
+    "footer_navigation",
+    "footer_links"
+  ],
+    "navigation_buttons": [
+      "Previous",
+      "Save",
+      "Print",
+      "Go to my account",
+      "Next"
+    ],
+  "progress_indicator": "15%",
+  "page_number": "3/20"
+}
+</example_format>
+
+<output_rules>
+    <format>Raw JSON structure only</format>
+    <validation>Ensure valid JSON syntax that can be parsed</validation>
+    <restrictions>
+        <no_markdown>Do not include markdown code blocks or ```json``` formatting</no_markdown>
+        <no_explanation>Do not include any explanatory text outside the JSON</no_explanation>
+        <no_comments>Do not include JSON comments or additional notes</no_comments>
+    </restrictions>
+</output_rules>"""
 
 
 class FactExtractor:
@@ -86,29 +149,48 @@ class FactExtractor:
             else:
                 raise ValueError("Unsupported image format (expected PNG or JPEG)")
 
-            # Create vision message
-            prompt = "Analyze this webpage screenshot and extract the facts as specified."
+            # Create vision message with image and URL
+            # TODO: Extract actual URL from metadata when available
+            page_url = "unknown"
+            prompt_text = f"Analyze this webpage screenshot and extract the facts as specified. URL: {page_url}"
 
-            # Run AI agent with vision
-            result = await self.agent.run(
-                prompt,
-                message_history=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{image_type};base64,{screenshot_b64}"
-                                },
-                            },
-                        ],
-                    }
-                ],
+            # Log the request being sent (without base64 image data)
+            logger.info(
+                "ai_request_sending",
+                session_id=session_id,
+                sequence_number=sequence_number,
+                prompt=prompt_text,
+                image_type=image_type,
+                image_size_bytes=len(screenshot_bytes),
+                base64_size=len(screenshot_b64),
+                system_prompt=FACT_EXTRACTION_SYSTEM_PROMPT[:200] + "...",
             )
 
-            fact_file = result.data
+            # Run AI agent with vision - pass text and ImageUrl in user_prompt list
+            # This is the correct format for pydantic-ai vision support
+            result = await self.agent.run(
+                user_prompt=[
+                    prompt_text,  # Text prompt first
+                    ImageUrl(url=f"data:{image_type};base64,{screenshot_b64}")  # Image as ImageUrl object
+                ]
+            )
+
+            # Extract the FactFile from the output (pydantic-ai 1.11.1 API)
+            fact_file = result.output
+
+            # Log the AI response
+            logger.info(
+                "ai_response_received",
+                session_id=session_id,
+                sequence_number=sequence_number,
+                url=fact_file.url,
+                page_headings=fact_file.page_headings,
+                form_headings=fact_file.form_headings,
+                visual_sections=fact_file.visual_sections,
+                navigation_buttons=fact_file.navigation_buttons,
+                progress_indicator=fact_file.progress_indicator,
+                page_number=fact_file.page_number,
+            )
 
             # Calculate metrics
             latency_ms = (time.time() - start_time) * 1000
@@ -140,8 +222,8 @@ class FactExtractor:
                 "fact_extraction_complete",
                 session_id=session_id,
                 sequence_number=sequence_number,
-                visual_headings_count=len(fact_file.visual_headings),
-                has_forms=fact_file.form_elements.has_forms,
+                page_headings_count=len(fact_file.page_headings),
+                form_headings_count=len(fact_file.form_headings),
                 latency_ms=latency_ms,
             )
 

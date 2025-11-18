@@ -36,6 +36,8 @@ class ProcessingResult(BaseModel):
         "fact_extraction",
         "prompt_generation",
         "triplet_processing",
+        "schema_generation",
+        "quartet_processing",
         "session_merge",
         "master_merge",
         "combined_generation",
@@ -52,6 +54,9 @@ class ProcessingResult(BaseModel):
     )
     prompt_file_path: str | None = Field(
         default=None, description="Generated prompt file path"
+    )
+    schema_file_path: str | None = Field(
+        default=None, description="Generated schema file path"
     )
     combined_prompt_path: str | None = Field(
         default=None, description="Combined prompt file path"
@@ -85,7 +90,7 @@ class ProcessingResult(BaseModel):
                 "timestamp": "2025-01-06T12:34:56Z",
                 "fact_file_path": "sessions/550e8400-e29b-41d4-a716-446655440000/001-page.facts.json",
                 "ai_metrics": {
-                    "model": "anthropic/claude-3.5-haiku",
+                    "model": "anthropic/claude-sonnet-4.5",
                     "prompt_tokens": 1523,
                     "completion_tokens": 421,
                     "total_tokens": 1944,

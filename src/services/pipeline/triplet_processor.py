@@ -4,6 +4,7 @@ Orchestrates processing of individual file triplets: load files, extract facts,
 write fact files, track metrics.
 """
 
+import json
 import time
 from uuid import UUID
 
@@ -11,21 +12,29 @@ from src.lib.logging import get_logger, log_error_with_context
 from src.lib.validation import validate_file_size
 from src.models.result import AIMetrics, ProcessingResult
 from src.models.session import FileTriplet
-from src.services.ai import get_fact_extractor
-from src.services.storage.session_storage import load_triplet_files, write_fact_file
+from src.services.ai import get_fact_extractor, get_prompt_generator
+from src.services.html import get_form_parser
+from src.services.storage.session_storage import (
+    load_triplet_files,
+    write_fact_file,
+    write_prompt_file,
+)
 
 logger = get_logger(__name__)
 
 
 async def process_triplet(session_id: UUID, triplet: FileTriplet) -> ProcessingResult:
-    """Process a single file triplet through the fact extraction pipeline.
+    """Process a single file triplet through the fact extraction and prompt generation pipeline.
 
     Pipeline stages:
     1. Load triplet files (screenshot, HTML, metadata)
     2. Validate file sizes
     3. Extract facts using AI vision
     4. Write fact file to storage
-    5. Return processing result with metrics
+    5. Parse HTML to extract form fields
+    6. Generate prompt file using AI
+    7. Write prompt file to storage
+    8. Return processing result with metrics
 
     Args:
         session_id: Session UUID
@@ -73,6 +82,45 @@ async def process_triplet(session_id: UUID, triplet: FileTriplet) -> ProcessingR
         # Update triplet with generated file path
         triplet.fact_file_path = fact_path
 
+        logger.info(
+            "fact_extraction_complete",
+            session_id=str(session_id),
+            sequence_number=triplet.sequence_number,
+            fact_file_path=fact_path,
+        )
+
+        # Stage 5: Parse HTML to extract form fields
+        form_parser = get_form_parser()
+        form_fields = form_parser.parse_html(html_content)
+
+        logger.info(
+            "html_parsing_complete",
+            session_id=str(session_id),
+            sequence_number=triplet.sequence_number,
+            form_field_count=len(form_fields),
+        )
+
+        # Stage 6: Generate prompt file using AI
+        prompt_generator = get_prompt_generator()
+
+        prompt_data, prompt_ai_metrics = await prompt_generator.generate_prompt(
+            screenshot_bytes, form_fields, triplet.sequence_number, str(session_id)
+        )
+
+        # Stage 7: Write prompt file
+        prompt_json = json.dumps(prompt_data, indent=2)
+        prompt_path = await write_prompt_file(session_id, triplet, prompt_json)
+
+        # Update triplet with prompt file path
+        triplet.prompt_file_path = prompt_path
+
+        logger.info(
+            "prompt_generation_complete",
+            session_id=str(session_id),
+            sequence_number=triplet.sequence_number,
+            prompt_file_path=prompt_path,
+        )
+
         # Calculate total duration
         duration_ms = (time.time() - start_time) * 1000
 
@@ -80,17 +128,23 @@ async def process_triplet(session_id: UUID, triplet: FileTriplet) -> ProcessingR
         result = ProcessingResult(
             session_id=session_id,
             sequence_number=triplet.sequence_number,
-            operation="fact_extraction",
+            operation="triplet_processing",
             success=True,
             duration_ms=duration_ms,
             fact_file_path=fact_path,
+            prompt_file_path=prompt_path,
             ai_metrics=AIMetrics(**ai_metrics),
             metadata={
                 "screenshot_size_bytes": len(screenshot_bytes),
                 "html_size_bytes": len(html_content),
-                "visual_headings_count": len(fact_file.visual_headings),
-                "has_forms": fact_file.form_elements.has_forms,
-                "form_fields_count": len(fact_file.form_elements.visible_fields),
+                "page_headings_count": len(fact_file.page_headings),
+                "form_headings_count": len(fact_file.form_headings),
+                "navigation_buttons_count": len(fact_file.navigation_buttons),
+                "form_field_count": len(form_fields),
+                "fact_ai_latency_ms": ai_metrics["latency_ms"],
+                "prompt_ai_latency_ms": prompt_ai_metrics["latency_ms"],
+                "fact_ai_tokens": ai_metrics["total_tokens"],
+                "prompt_ai_tokens": prompt_ai_metrics["total_tokens"],
             },
         )
 

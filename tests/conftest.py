@@ -9,8 +9,8 @@ from typing import Any, Generator
 
 # Set environment variables BEFORE any src imports
 os.environ["AI_PROVIDER"] = "openrouter"
-os.environ["AI_FACT_MODEL"] = "anthropic/claude-3.5-haiku"
-os.environ["AI_PROMPT_MODEL"] = "anthropic/claude-3.5-haiku"
+os.environ["AI_FACT_MODEL"] = "anthropic/claude-sonnet-4.5"
+os.environ["AI_PROMPT_MODEL"] = "anthropic/claude-sonnet-4.5"
 os.environ["OPENROUTER_API_KEY"] = "test_api_key"
 os.environ["REDIS_HOST"] = "localhost"
 os.environ["REDIS_PORT"] = "6379"

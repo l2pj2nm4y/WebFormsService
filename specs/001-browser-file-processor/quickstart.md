@@ -54,9 +54,9 @@ Create `.env` file in project root:
 ```bash
 # AI Configuration
 AI_PROVIDER=openrouter
-AI_FACT_MODEL=anthropic/claude-3.5-haiku
-AI_PROMPT_MODEL=anthropic/claude-3.5-haiku
-AI_SIMILARITY_MODEL=anthropic/claude-3.5-haiku
+AI_FACT_MODEL=anthropic/claude-sonnet-4.5
+AI_PROMPT_MODEL=anthropic/claude-sonnet-4.5
+AI_SIMILARITY_MODEL=anthropic/claude-sonnet-4.5
 AI_EMBEDDINGS_MODEL=openai/text-embedding-3-small
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 

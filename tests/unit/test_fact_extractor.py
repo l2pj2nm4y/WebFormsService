@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from src.models.fact import FactFile, FormElements
+from src.models.fact import FactFile
 from src.services.ai.fact_extractor import FactExtractor
 
 
@@ -16,23 +16,22 @@ from src.services.ai.fact_extractor import FactExtractor
 def sample_fact_file() -> FactFile:
     """Provide sample fact file for testing."""
     return FactFile(
-        visual_headings=["Application for Naturalization", "Form N-400", "Part 1"],
-        visual_sections=["header with logo", "main content area", "footer"],
-        form_elements=FormElements(
-            has_forms=True,
-            visible_fields=["text", "text", "date"],
-            buttons=["Continue", "Save for Later"],
-        ),
-        layout_pattern="Single column form with sequential fields",
-        content_keywords=["citizenship", "naturalization", "government", "form"],
+        url="https://example.gov/citizenship",
+        scratchpad="Sample scratchpad analysis of form",
+        page_headings=["Application for Naturalization", "Form N-400"],
+        form_headings=["Part 1", "Personal Information"],
+        visual_sections=["header", "main_content_form", "footer"],
+        navigation_buttons=["Continue", "Save for Later", "Previous"],
+        progress_indicator="25%",
+        page_number="1/4",
     )
 
 
 @pytest.fixture
 def mock_agent_result(sample_fact_file: FactFile) -> MagicMock:
-    """Mock Pydantic AI agent result."""
+    """Mock Pydantic AI agent result (pydantic-ai 1.11.1 API)."""
     mock_result = MagicMock()
-    mock_result.data = sample_fact_file
+    mock_result.output = sample_fact_file  # Use .output for structured output
     mock_result.usage.return_value = MagicMock(
         request_tokens=1500, response_tokens=400, total_tokens=1900
     )
@@ -69,7 +68,7 @@ class TestFactExtractor:
             assert fact_file == sample_fact_file
 
             # Verify metrics
-            assert metrics["model"] == "anthropic/claude-3.5-haiku"
+            assert metrics["model"] == "anthropic/claude-sonnet-4.5"
             assert metrics["prompt_tokens"] == 1500
             assert metrics["completion_tokens"] == 400
             assert metrics["total_tokens"] == 1900
@@ -77,55 +76,6 @@ class TestFactExtractor:
 
             # Verify agent was called
             mock_agent.run.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_extract_facts_detects_png_format(
-        self, sample_screenshot_bytes: bytes, mock_agent_result: MagicMock
-    ) -> None:
-        """Test PNG format detection."""
-        with patch("src.services.ai.fact_extractor.Agent") as mock_agent_class:
-            mock_agent = AsyncMock()
-            mock_agent.run.return_value = mock_agent_result
-            mock_agent_class.return_value = mock_agent
-
-            extractor = FactExtractor()
-            extractor.agent = mock_agent
-
-            await extractor.extract_facts(
-                sample_screenshot_bytes, sequence_number=1, session_id="test"
-            )
-
-            # Verify PNG was detected (message contains image/png)
-            call_args = mock_agent.run.call_args
-            message = call_args[1]["message_history"][0]
-            image_content = message["content"][1]
-            assert "image/png" in image_content["image_url"]["url"]
-
-    @pytest.mark.asyncio
-    async def test_extract_facts_detects_jpeg_format(
-        self, mock_agent_result: MagicMock
-    ) -> None:
-        """Test JPEG format detection."""
-        # JPEG magic bytes
-        jpeg_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 100
-
-        with patch("src.services.ai.fact_extractor.Agent") as mock_agent_class:
-            mock_agent = AsyncMock()
-            mock_agent.run.return_value = mock_agent_result
-            mock_agent_class.return_value = mock_agent
-
-            extractor = FactExtractor()
-            extractor.agent = mock_agent
-
-            await extractor.extract_facts(
-                jpeg_bytes, sequence_number=1, session_id="test"
-            )
-
-            # Verify JPEG was detected
-            call_args = mock_agent.run.call_args
-            message = call_args[1]["message_history"][0]
-            image_content = message["content"][1]
-            assert "image/jpeg" in image_content["image_url"]["url"]
 
     @pytest.mark.asyncio
     async def test_extract_facts_rejects_invalid_format(self) -> None:

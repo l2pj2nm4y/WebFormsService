@@ -55,17 +55,17 @@
 
 ### 3. OpenRouter with Anthropic Claude 3.5 Haiku (AI Provider)
 
-**Decision**: Use OpenRouter as the AI provider gateway, initially configured for anthropic/claude-3.5-haiku
+**Decision**: Use OpenRouter as the AI provider gateway, initially configured for anthropic/claude-sonnet-4.5
 
 **Rationale**:
-- **Explicit User Requirement**: "initially use OpenRouter with anthropic/claude-3.5-haiku"
+- **Explicit User Requirement**: "initially use OpenRouter with anthropic/claude-sonnet-4.5"
 - **Provider Flexibility**: OpenRouter provides unified API for 100+ AI models from multiple providers
 - **Easy Switching**: Change models via configuration without code changes (user requirement: "Allow easy switching of AI Model Providers")
 - **Cost Optimization**: Compare costs across providers, switch to cheaper models for specific tasks
 - **Redundancy**: Fallback to alternative models if primary provider has issues
 - **Vision Support**: Access to vision-capable models (Claude 3.5, GPT-4 Vision, Gemini) for screenshot analysis
 
-**Initial Model Choice (anthropic/claude-3.5-haiku)**:
+**Initial Model Choice (anthropic/claude-sonnet-4.5)**:
 - Fast inference (critical for 10-15 second SLA per file)
 - Vision capabilities for screenshot analysis
 - Strong structured output generation
@@ -76,8 +76,8 @@
 ```python
 # config.py
 AI_PROVIDER = "openrouter"  # Can switch to "openai", "anthropic", "together", etc.
-AI_FACT_MODEL = "anthropic/claude-3.5-haiku"
-AI_PROMPT_MODEL = "anthropic/claude-3.5-haiku"
+AI_FACT_MODEL = "anthropic/claude-sonnet-4.5"
+AI_PROMPT_MODEL = "anthropic/claude-sonnet-4.5"
 AI_EMBEDDINGS_MODEL = "openai/text-embedding-3-small"  # Dedicated embeddings model
 ```
 
@@ -268,7 +268,7 @@ masters/
   "trace_id": "abc-123",
   "operation": "fact_extraction",
   "file_path": "sessions/guid-123/001-screenshot.png",
-  "ai_model": "anthropic/claude-3.5-haiku",
+  "ai_model": "anthropic/claude-sonnet-4.5",
   "ai_latency_ms": 3421,
   "ai_tokens": 2134,
   "ai_cost_usd": 0.0042,

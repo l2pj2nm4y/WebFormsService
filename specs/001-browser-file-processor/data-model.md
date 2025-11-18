@@ -238,7 +238,7 @@ class FactFile(BaseModel):
                 "layout_pattern": "single_column_form",
                 "content_keywords": ["application", "personal", "contact", "submit"],
                 "extracted_at": "2025-01-06T14:35:22Z",
-                "ai_model": "anthropic/claude-3.5-haiku",
+                "ai_model": "anthropic/claude-sonnet-4.5",
                 "confidence_score": 0.92
             }
         }
@@ -350,7 +350,7 @@ class PromptFile(BaseModel):
                     }
                 },
                 "generated_at": "2025-01-06T14:36:10Z",
-                "ai_model": "anthropic/claude-3.5-haiku",
+                "ai_model": "anthropic/claude-sonnet-4.5",
                 "source_triplet": 1
             }
         }

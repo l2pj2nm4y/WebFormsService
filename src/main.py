@@ -5,11 +5,11 @@ Provides CLI and service entry points for processing browser extension sessions.
 
 import asyncio
 from pathlib import Path
+from typing import Annotated
 from uuid import UUID
 
 import typer
 from dotenv import load_dotenv
-from typing_extensions import Annotated
 
 from src.lib.logging import configure_logging, get_logger
 from src.services.coordination import enqueue_session
@@ -43,8 +43,8 @@ def process(
         uuid = UUID(session_id)
         result = asyncio.run(process_session(uuid))
 
-        typer.echo(f"\n✅ Session processed successfully!")
-        typer.echo(f"   Triplets: {result.triplets_processed}")
+        typer.echo("\n✅ Session processed successfully!")
+        typer.echo(f"   Quartets: {result.triplets_processed}")
         typer.echo(f"   Success: {result.success_count}")
         typer.echo(f"   Failed: {result.failure_count}")
         typer.echo(f"   Success Rate: {result.success_rate():.1f}%")
@@ -82,7 +82,7 @@ def worker() -> None:
                 if result:
                     typer.echo(
                         f"\n✅ Session {result.session_id} complete "
-                        f"({result.success_count}/{result.triplets_processed} success)"
+                        f"({result.success_count}/{result.triplets_processed} quartets success)"
                     )
                 else:
                     # Queue empty, wait before trying again

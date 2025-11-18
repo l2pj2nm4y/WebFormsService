@@ -12,9 +12,25 @@ from src.services.ai.fact_extractor import (
     get_fact_extractor,
     reset_fact_extractor,
 )
+from src.services.ai.prompt_generator import (
+    PromptGenerator,
+    get_prompt_generator,
+    reset_prompt_generator,
+)
+from src.services.ai.schema_generator import (
+    SchemaGenerator,
+    get_schema_generator,
+    reset_schema_generator,
+)
 
 __all__ = [
     "FactExtractor",
     "get_fact_extractor",
     "reset_fact_extractor",
+    "PromptGenerator",
+    "get_prompt_generator",
+    "reset_prompt_generator",
+    "SchemaGenerator",
+    "get_schema_generator",
+    "reset_schema_generator",
 ]

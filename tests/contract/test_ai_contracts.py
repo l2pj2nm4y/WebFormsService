@@ -205,7 +205,7 @@ class TestAIMetricsContract:
         from src.models.result import AIMetrics
 
         metrics = AIMetrics(
-            model="anthropic/claude-3.5-haiku",
+            model="anthropic/claude-sonnet-4.5",
             prompt_tokens=1523,
             completion_tokens=421,
             total_tokens=1944,

@@ -101,7 +101,92 @@ async def test_fact_extraction_contract():
     assert result.ai_model.startswith("anthropic/") or result.ai_model.startswith("openai/")
 ```
 
-## 2. Prompt Generation Contract
+## 2. Schema Generation Contract
+
+**Operation**: Generate comprehensive JSON schema representing form fields and structure from screenshot
+
+**Input**:
+```python
+class SchemaGenerationInput(BaseModel):
+    """Input for form schema generation from screenshot"""
+    screenshot_base64: str = Field(..., description="Base64-encoded screenshot image")
+    screenshot_format: str = Field(..., description="Image format: 'png' or 'jpeg'")
+```
+
+**Output Schema**: [`FormSchema`](../data-model.md)
+
+```python
+class FormSchema(BaseModel):
+    """Complete schema representation of a web form"""
+    page_identifier: str = Field(..., description="Unique identifier for the form page")
+    form_name: str = Field(..., description="Name of the form")
+    description: str = Field(..., description="Description of the form and its purpose")
+    sections: list[FormSection] = Field(..., description="Form sections containing fields")
+
+class FormSection(BaseModel):
+    """Section of a form containing related fields"""
+    name: str = Field(..., description="Section identifier/name")
+    description: str = Field(..., description="Purpose of this information group")
+    required: bool = Field(default=False, description="Whether all fields in section are required")
+    fields: list[FormField] = Field(default_factory=list)
+    subsections: list[FormSection] = Field(default_factory=list)
+
+class FormField(BaseModel):
+    """Complete specification for a single form field"""
+    name: str = Field(..., description="Field identifier/name")
+    type: str = Field(..., description="string|number|boolean|date|datetime|time|email|phone|url|file|currency|percentage|array|object")
+    required: bool = Field(default=False)
+    description: str = Field(..., description="What information the user needs to provide")
+    label: str | None = Field(default=None)
+    placeholder: str | None = Field(default=None)
+    default_value: Any | None = Field(default=None)
+    constraints: list[FormFieldConstraint] = Field(default_factory=list)
+    options: list[str] | None = Field(default=None)
+    sensitive: bool = Field(default=False)
+    input_format: str | None = Field(default=None)
+    table_config: TableConfig | None = Field(default=None)
+    array_config: ArrayConfig | None = Field(default=None)
+```
+
+**Performance SLA**:
+- Max latency: 20 seconds (95th percentile) - larger output schema
+- Token budget: Average 8000 tokens (input + output)
+- Success rate: 90%+ for forms with clear field definitions
+
+**Error Handling**:
+- Malformed JSON response: Retry once with clarifying prompt
+- Missing required fields: Log warning, return partial schema
+- API timeout: Retry with exponential backoff (3 attempts max)
+- Invalid schema: Log AI response, return validation errors
+
+**Test Contract**:
+```python
+async def test_schema_generation_contract():
+    """Contract test: Schema generation returns valid FormSchema"""
+    # Given: A sample screenshot of a form
+    input_data = SchemaGenerationInput(
+        screenshot_base64=load_test_image("sample_form.png"),
+        screenshot_format="png"
+    )
+
+    # When: Schema generation is performed
+    result = await ai_service.generate_schema(input_data)
+
+    # Then: Result matches FormSchema
+    assert isinstance(result, FormSchema)
+    assert result.page_identifier
+    assert result.form_name
+    assert len(result.sections) > 0
+    for section in result.sections:
+        assert section.name
+        assert section.description
+        for field in section.fields:
+            assert field.name
+            assert field.type in ["string", "number", "boolean", "date", "datetime", "time", "email", "phone", "url", "file", "currency", "percentage", "array", "object"]
+            assert field.description
+```
+
+## 3. Prompt Generation Contract
 
 **Operation**: Generate structured form field definitions from screenshot
 
@@ -403,9 +488,10 @@ class AIOperationError(BaseModel):
 class AIConfig(BaseModel):
     """Configuration for AI services"""
     provider: str = Field(default="openrouter", description="AI provider: openrouter|openai|anthropic")
-    fact_model: str = Field(default="anthropic/claude-3.5-haiku", description="Model for fact extraction")
-    prompt_model: str = Field(default="anthropic/claude-3.5-haiku", description="Model for prompt generation")
-    similarity_model: str = Field(default="anthropic/claude-3.5-haiku", description="Model for similarity scoring")
+    fact_model: str = Field(default="anthropic/claude-sonnet-4.5", description="Model for fact extraction")
+    schema_model: str = Field(default="anthropic/claude-sonnet-4.5", description="Model for form schema generation")
+    prompt_model: str = Field(default="anthropic/claude-sonnet-4.5", description="Model for prompt generation")
+    similarity_model: str = Field(default="anthropic/claude-sonnet-4.5", description="Model for similarity scoring")
     embeddings_model: str = Field(default="openai/text-embedding-3-small", description="Model for embeddings")
 
     # Performance settings

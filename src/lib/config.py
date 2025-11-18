@@ -20,15 +20,19 @@ class AIConfig(BaseSettings):
         default="openrouter", description="AI provider selection"
     )
     fact_model: str = Field(
-        default="anthropic/claude-3.5-haiku",
+        default="anthropic/claude-sonnet-4.5",
         description="Model for fact extraction from screenshots",
     )
+    schema_model: str = Field(
+        default="anthropic/claude-sonnet-4.5",
+        description="Model for form schema generation from screenshots",
+    )
     prompt_model: str = Field(
-        default="anthropic/claude-3.5-haiku",
+        default="anthropic/claude-sonnet-4.5",
         description="Model for prompt/schema generation",
     )
     similarity_model: str = Field(
-        default="anthropic/claude-3.5-haiku",
+        default="anthropic/claude-sonnet-4.5",
         description="Model for similarity scoring",
     )
     embeddings_model: str = Field(

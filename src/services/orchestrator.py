@@ -2,8 +2,8 @@
 
 Orchestrates complete session processing workflow:
 1. Claim session from Redis queue
-2. Load session and discover triplets
-3. Process each triplet (fact extraction)
+2. Load session and discover quartets
+3. Process each quartet (schema generation)
 4. Track aggregate metrics and results
 5. Return session processing result
 """
@@ -14,14 +14,14 @@ from uuid import UUID
 from src.lib.logging import get_logger, log_processing_result
 from src.models.result import SessionProcessingResult
 from src.services.coordination import claim_next_session
-from src.services.pipeline import process_triplet
-from src.services.storage.session_storage import load_session
+from src.services.pipeline import process_quartet
+from src.services.storage.session_storage import discover_quartets
 
 logger = get_logger(__name__)
 
 
 async def process_session(session_id: UUID) -> SessionProcessingResult:
-    """Process a complete session: load triplets, extract facts, aggregate results.
+    """Process a complete session: discover quartets, generate schemas, aggregate results.
 
     Args:
         session_id: Session UUID to process
@@ -37,26 +37,24 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
     logger.info("session_processing_start", session_id=str(session_id))
 
     try:
-        # Load session and discover triplets
-        session = await load_session(session_id)
+        # Discover quartets in session
+        quartets = await discover_quartets(session_id)
 
         logger.info(
-            "session_loaded",
+            "quartets_discovered_for_session",
             session_id=str(session_id),
-            triplet_count=len(session.triplets),
-            website_id=session.website_id,
-            task_type=session.task_type,
+            quartet_count=len(quartets),
         )
 
-        # Process each triplet
-        triplet_results = []
+        # Process each quartet
+        quartet_results = []
         success_count = 0
         failure_count = 0
         total_tokens = 0
 
-        for triplet in session.triplets:
-            result = await process_triplet(session_id, triplet)
-            triplet_results.append(result)
+        for quartet in quartets:
+            result = await process_quartet(session_id, quartet)
+            quartet_results.append(result)
 
             if result.success:
                 success_count += 1
@@ -68,15 +66,15 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
         # Calculate aggregate metrics
         total_duration_ms = (time.time() - start_time) * 1000
 
-        # For US1 MVP, unique_pages = success_count (no merging yet)
-        # For US1 MVP, pages_added_to_master = 0 (no master merge yet)
+        # For MVP: unique_pages = success_count (no merging yet)
+        # For MVP: pages_added_to_master = 0 (no master merge yet)
         unique_pages = success_count
         pages_added_to_master = 0
 
         # Create session result
         session_result = SessionProcessingResult(
             session_id=session_id,
-            triplets_processed=len(session.triplets),
+            triplets_processed=len(quartets),  # Reusing field name for backward compatibility
             success_count=success_count,
             failure_count=failure_count,
             total_duration_ms=total_duration_ms,
@@ -84,7 +82,7 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
             total_cost_usd=None,  # OpenRouter doesn't always provide cost
             unique_pages=unique_pages,
             pages_added_to_master=pages_added_to_master,
-            triplet_results=triplet_results,
+            triplet_results=quartet_results,  # Reusing field name for backward compatibility
         )
 
         # Log processing result
@@ -92,7 +90,7 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
             logger,
             operation="session_processing",
             session_id=str(session_id),
-            triplets_processed=len(session.triplets),
+            triplets_processed=len(quartets),
             success_count=success_count,
             failure_count=failure_count,
             total_tokens=total_tokens,
@@ -102,7 +100,7 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
         logger.info(
             "session_processing_complete",
             session_id=str(session_id),
-            triplets_processed=len(session.triplets),
+            quartets_processed=len(quartets),
             success_count=success_count,
             failure_count=failure_count,
             success_rate=session_result.success_rate(),

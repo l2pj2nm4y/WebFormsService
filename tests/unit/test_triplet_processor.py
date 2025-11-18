@@ -62,7 +62,7 @@ class TestTripletProcessor:
             duration_ms=2500.0,
             fact_file_path=f"sessions/{session_id}/001-page.facts.json",
             ai_metrics=AIMetrics(
-                model="anthropic/claude-3.5-haiku",
+                model="anthropic/claude-sonnet-4.5",
                 prompt_tokens=1500,
                 completion_tokens=400,
                 total_tokens=1900,
