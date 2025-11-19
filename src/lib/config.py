@@ -39,6 +39,12 @@ class AIConfig(BaseSettings):
         default="openai/text-embedding-3-small",
         description="Model for embeddings generation",
     )
+    temperature: float = Field(
+        default=0.1,
+        description="Temperature for AI model inference (0.0-2.0, lower=more deterministic)",
+        ge=0.0,
+        le=2.0,
+    )
 
 
 class OpenRouterConfig(BaseSettings):

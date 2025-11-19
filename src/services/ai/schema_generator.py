@@ -8,9 +8,11 @@ import base64
 import time
 from typing import Any
 
-from pydantic_ai import Agent
+import httpx
+from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.messages import ImageUrl
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from src.lib.config import get_config
 from src.lib.logging import get_logger, log_ai_operation
@@ -704,10 +706,35 @@ class SchemaGenerator:
         """Initialize schema generator with configuration."""
         config = get_config()
 
-        # Create Pydantic AI agent with OpenRouter provider
+        # Create model settings with temperature only (no max_tokens limit)
+        # Claude Sonnet 4.5 supports up to 64K output tokens
+        model_settings = ModelSettings(
+            temperature=config.ai.temperature,
+            # No max_tokens specified - use model's default maximum
+        )
+
+        # Create custom HTTP client with sub-provider headers for OpenRouter
+        # Force Anthropic as the exclusive provider with no fallbacks
+        http_client = httpx.AsyncClient(
+            headers={
+                'X-Provider-Order': 'Anthropic',  # Force Anthropic provider
+                'X-Allow-Fallbacks': 'false'       # Disable fallback to other providers
+            }
+        )
+
+        # Create OpenRouter provider WITH sub-provider headers
+        # Headers force routing to Anthropic within OpenRouter
+        provider = OpenRouterProvider(
+            api_key=config.openrouter.api_key,
+            http_client=http_client,
+        )
+
+        # Create model using OpenAIChatModel with OpenRouter provider
+        # OpenRouter handles format conversion automatically
         model = OpenAIChatModel(
-            config.ai.schema_model,
-            provider="openrouter",
+            config.ai.schema_model,  # e.g., "anthropic/claude-sonnet-4.5"
+            provider=provider,
+            settings=model_settings,
         )
 
         self.agent: Agent[None, FormSchema] = Agent(
@@ -717,6 +744,7 @@ class SchemaGenerator:
         )
 
         self.model_name = config.ai.schema_model
+        self.temperature = config.ai.temperature
 
     async def generate_schema(
         self,
@@ -815,6 +843,8 @@ Systematically analyze the screenshot for these page characteristics:
                 image_type=image_type,
                 image_size_bytes=len(screenshot_bytes),
                 base64_size=len(screenshot_b64),
+                model=self.model_name,
+                temperature=self.temperature,
                 system_prompt=SCHEMA_GENERATION_SYSTEM_PROMPT[:200] + "...",
             )
 

@@ -4,8 +4,9 @@ Orchestrates complete session processing workflow:
 1. Claim session from Redis queue
 2. Load session and discover quartets
 3. Process each quartet (schema generation)
-4. Track aggregate metrics and results
-5. Return session processing result
+4. Merge schemas by page similarity
+5. Track aggregate metrics and results
+6. Return session processing result
 """
 
 import asyncio
@@ -17,7 +18,7 @@ from src.lib.logging import get_logger, log_processing_result
 from src.models.result import ProcessingResult, SessionProcessingResult
 from src.models.session import FileQuartet
 from src.services.coordination import claim_next_session
-from src.services.pipeline import process_quartet
+from src.services.pipeline import merge_session_schemas, process_quartet
 from src.services.storage.session_storage import discover_quartets
 
 logger = get_logger(__name__)
@@ -162,12 +163,46 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
             else:
                 failure_count += 1
 
+        # Merge schemas if any quartets succeeded
+        merge_result = None
+        unique_pages = 0
+
+        if success_count > 0:
+            logger.info(
+                "session_merge_start",
+                session_id=str(session_id),
+                successful_quartets=success_count,
+            )
+
+            merge_result = await merge_session_schemas(
+                session_id=session_id,
+                similarity_threshold=0.7,
+                retention_days=30,
+            )
+
+            if merge_result.success and merge_result.metadata:
+                unique_pages = merge_result.metadata.get("page_groups_count", 0)
+
+                logger.info(
+                    "session_merge_complete",
+                    session_id=str(session_id),
+                    source_schemas=merge_result.metadata.get("source_schema_count", 0),
+                    unique_pages=unique_pages,
+                    merged_schemas_saved=merge_result.metadata.get("merged_schemas_saved", 0),
+                )
+            else:
+                logger.warning(
+                    "session_merge_failed",
+                    session_id=str(session_id),
+                    error=merge_result.error_message if merge_result else "Unknown error",
+                )
+                # Fall back to success_count if merge fails
+                unique_pages = success_count
+
         # Calculate aggregate metrics
         total_duration_ms = (time.time() - start_time) * 1000
 
-        # For MVP: unique_pages = success_count (no merging yet)
         # For MVP: pages_added_to_master = 0 (no master merge yet)
-        unique_pages = success_count
         pages_added_to_master = 0
 
         # Create session result
