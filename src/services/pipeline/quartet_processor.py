@@ -84,7 +84,7 @@ async def process_quartet(session_id: UUID, quartet: FileQuartet) -> ProcessingR
         schema_generator = get_schema_generator()
 
         form_schema, ai_metrics = await schema_generator.generate_schema(
-            screenshot_bytes, quartet.sequence_number, str(session_id), scraped_facts
+            screenshot_bytes, quartet.sequence_number, str(session_id), scraped_facts, metadata
         )
 
         # Stage 4: Write schema file
@@ -100,6 +100,35 @@ async def process_quartet(session_id: UUID, quartet: FileQuartet) -> ProcessingR
             sequence_number=quartet.sequence_number,
             schema_file_path=schema_path,
         )
+
+        # Stage 4.5: Transform schema to prompt format and write prompt file
+        from src.services.transformers.schema_to_prompt import formschema_to_promptfile
+        from src.services.storage.session_storage import write_prompt_file
+
+        try:
+            # Convert FormSchema to PromptFile
+            prompt_file = formschema_to_promptfile(form_schema)
+            prompt_json = prompt_file.model_dump_json(indent=2)
+            prompt_path = await write_prompt_file(session_id, quartet, prompt_json)
+
+            logger.info(
+                "prompt_file_generated",
+                session_id=str(session_id),
+                sequence_number=quartet.sequence_number,
+                prompt_file_path=prompt_path,
+                sections_count=len(prompt_file.sections),
+                required_fields_count=len(prompt_file.get_required_fields()),
+            )
+        except Exception as e:
+            # Strict mode: fail entire quartet processing if prompt generation fails
+            logger.error(
+                "prompt_generation_failed",
+                session_id=str(session_id),
+                sequence_number=quartet.sequence_number,
+                error=str(e),
+                exc_info=True,
+            )
+            raise  # Re-raise to fail quartet processing
 
         # Stage 5: Calculate total duration and return result
         duration_ms = (time.time() - start_time) * 1000

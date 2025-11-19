@@ -85,79 +85,155 @@ class TestPromptGenerationContract:
     """Contract tests for prompt/schema generation from screenshots."""
 
     def test_prompt_file_structure(self) -> None:
-        """Prompt file must contain fields dictionary and metadata."""
+        """Prompt file must contain form_info, sections, and metadata."""
+        from src.models.prompt import FormInfo, PromptSection
+
         prompt = PromptFile(
             schema_version="1.0",
-            fields={
-                "firstName": "[Required: string - Given name]",
-                "lastName": "[Required: string - Family name]",
-                "email": "[Optional: email - Contact email]",
-            },
-            metadata={"formTitle": "Application Form", "pageNumber": "1"},
+            form_info=FormInfo(
+                form_name="Application Form",
+                description="Test application",
+                page_identifier="page-1",
+            ),
+            sections=[
+                PromptSection(
+                    name="Applicant",
+                    description="Applicant information",
+                    path="Applicant",
+                    fields={
+                        "firstName": "[Required: string - Given name]",
+                        "lastName": "[Required: string - Family name]",
+                        "email": "[Optional: email - Contact email]",
+                    },
+                )
+            ],
+            metadata={"pageNumber": "1"},
         )
 
         assert prompt.schema_version == "1.0"
-        assert isinstance(prompt.fields, dict)
-        assert len(prompt.fields) > 0
+        assert isinstance(prompt.form_info, FormInfo)
+        assert isinstance(prompt.sections, list)
+        assert len(prompt.sections) > 0
         assert isinstance(prompt.metadata, dict)
 
-    def test_prompt_file_validates_non_empty_fields(self) -> None:
-        """Prompt file must have non-empty fields dictionary."""
-        with pytest.raises(ValueError, match="fields dictionary cannot be empty"):
-            PromptFile(schema_version="1.0", fields={}, metadata={})
+    def test_prompt_file_validates_non_empty_sections(self) -> None:
+        """Prompt file must have non-empty sections list."""
+        from src.models.prompt import FormInfo
+
+        with pytest.raises(ValueError, match="sections list cannot be empty"):
+            PromptFile(
+                schema_version="1.0",
+                form_info=FormInfo(
+                    form_name="Test",
+                    description="Test form",
+                    page_identifier="test-1",
+                ),
+                sections=[],
+                metadata={},
+            )
 
     def test_bracketed_notation_format(self) -> None:
-        """Fields must use bracketed notation format."""
+        """Fields within sections must use bracketed notation format."""
+        from src.models.prompt import FormInfo, PromptSection
+
         prompt = PromptFile(
-            fields={
-                "name": "[Required: string - Full name]",
-                "age": "[Optional: number - Age in years]",
-                "email": "[Required: email - Email address]",
-            }
+            form_info=FormInfo(
+                form_name="Test Form",
+                description="Test",
+                page_identifier="test-1",
+            ),
+            sections=[
+                PromptSection(
+                    name="PersonalInfo",
+                    description="Personal information",
+                    path="PersonalInfo",
+                    fields={
+                        "name": "[Required: string - Full name]",
+                        "age": "[Optional: number - Age in years]",
+                        "email": "[Required: email - Email address]",
+                    },
+                )
+            ],
         )
 
-        # All fields should contain bracketed notation
-        for field_value in prompt.fields.values():
-            if isinstance(field_value, str):
-                assert "[" in field_value and "]" in field_value
-                assert ":" in field_value
-                assert "-" in field_value
+        # All fields in all sections should contain bracketed notation
+        for section in prompt.sections:
+            for field_value in section.fields.values():
+                if isinstance(field_value, str):
+                    assert "[" in field_value and "]" in field_value
+                    assert ":" in field_value
+                    assert "-" in field_value
 
     def test_get_required_fields_method(self) -> None:
         """PromptFile must support extracting required field paths."""
+        from src.models.prompt import FormInfo, PromptSection
+
         prompt = PromptFile(
-            fields={
-                "applicant": {
-                    "firstName": "[Required: string - Given name]",
-                    "middleName": "[Optional: string - Middle name]",
-                    "lastName": "[Required: string - Family name]",
-                },
-                "email": "[Required: email - Email address]",
-                "phone": "[Optional: phone - Phone number]",
-            }
+            form_info=FormInfo(
+                form_name="Test Form",
+                description="Test",
+                page_identifier="test-1",
+            ),
+            sections=[
+                PromptSection(
+                    name="Applicant",
+                    description="Applicant information",
+                    path="Applicant",
+                    fields={
+                        "firstName": "[Required: string - Given name]",
+                        "middleName": "[Optional: string - Middle name]",
+                        "lastName": "[Required: string - Family name]",
+                    },
+                    subsections=[
+                        PromptSection(
+                            name="Contact",
+                            description="Contact information",
+                            path="Applicant.Contact",
+                            fields={
+                                "email": "[Required: email - Email address]",
+                                "phone": "[Optional: phone - Phone number]",
+                            },
+                        )
+                    ],
+                )
+            ],
         )
 
         required = prompt.get_required_fields()
 
-        assert "applicant.firstName" in required
-        assert "applicant.lastName" in required
-        assert "email" in required
-        assert "applicant.middleName" not in required
-        assert "phone" not in required
+        assert "Applicant.firstName" in required
+        assert "Applicant.lastName" in required
+        assert "Applicant.Contact.email" in required
+        assert "Applicant.middleName" not in required
+        assert "Applicant.Contact.phone" not in required
 
     def test_get_field_type_method(self) -> None:
         """PromptFile must support extracting field types."""
+        from src.models.prompt import FormInfo, PromptSection
+
         prompt = PromptFile(
-            fields={
-                "name": "[Required: string - Full name]",
-                "age": "[Optional: number - Age]",
-                "email": "[Required: email - Email address]",
-            }
+            form_info=FormInfo(
+                form_name="Test Form",
+                description="Test",
+                page_identifier="test-1",
+            ),
+            sections=[
+                PromptSection(
+                    name="PersonalInfo",
+                    description="Personal information",
+                    path="PersonalInfo",
+                    fields={
+                        "name": "[Required: string - Full name]",
+                        "age": "[Optional: number - Age]",
+                        "email": "[Required: email - Email address]",
+                    },
+                )
+            ],
         )
 
-        assert prompt.get_field_type("name") == "string"
-        assert prompt.get_field_type("age") == "number"
-        assert prompt.get_field_type("email") == "email"
+        assert prompt.get_field_type("PersonalInfo.name") == "string"
+        assert prompt.get_field_type("PersonalInfo.age") == "number"
+        assert prompt.get_field_type("PersonalInfo.email") == "email"
         assert prompt.get_field_type("nonexistent") is None
 
     def test_prompt_generation_performance_contract(self) -> None:

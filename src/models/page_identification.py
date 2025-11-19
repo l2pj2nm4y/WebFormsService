@@ -18,6 +18,10 @@ class PageIdentification(BaseModel):
         default=None,
         description="Page URL if available"
     )
+    timestamp: str | None = Field(
+        default=None,
+        description="Capture timestamp (ISO 8601 format) when the screenshot was taken"
+    )
     page_headings: list[str] = Field(
         default_factory=list,
         description="Main page-level headings or titles visible at the top (not form section headings)",
@@ -47,6 +51,7 @@ class PageIdentification(BaseModel):
         json_schema_extra={
             "example": {
                 "url": "https://immi.homeaffairs.gov.au/citizenship/descent/page-3",
+                "timestamp": "2025-11-17T22:09:03.542Z",
                 "page_headings": [
                     "Online Lodgement",
                     "Australian citizenship by descent",

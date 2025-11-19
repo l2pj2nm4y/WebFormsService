@@ -724,6 +724,7 @@ class SchemaGenerator:
         sequence_number: int,
         session_id: str,
         scraped_facts: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> tuple[FormSchema, dict[str, Any]]:
         """Generate form schema from screenshot using AI vision.
 
@@ -732,6 +733,7 @@ class SchemaGenerator:
             sequence_number: Triplet sequence number
             session_id: Session identifier for logging
             scraped_facts: Optional scraped facts text to enhance schema generation
+            metadata: Optional metadata dictionary containing url and timestamp
 
         Returns:
             tuple[FormSchema, dict]: Form schema and metrics dictionary
@@ -754,8 +756,10 @@ class SchemaGenerator:
             else:
                 raise ValueError("Unsupported image format (expected PNG or JPEG)")
 
-            # Create vision message with image
-            prompt_text = "Analyze the screenshot I've provided."
+            # Create vision message with image, URL, and timestamp
+            page_url = metadata.get("url", "unknown") if metadata else "unknown"
+            timestamp = metadata.get("timestamp", "unknown") if metadata else "unknown"
+            prompt_text = f"Analyze the screenshot I've provided. URL: {page_url}, Captured at: {timestamp}"
 
             # Add scraped facts if provided
             if scraped_facts:

@@ -156,6 +156,7 @@ class TestQuartetProcessor:
                 sample_quartet.sequence_number,
                 str(session_id),
                 sample_scraped_facts,
+                {"website_id": "test.gov"},  # metadata parameter
             )
             mock_write.assert_called_once()
 
