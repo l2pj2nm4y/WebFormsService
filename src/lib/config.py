@@ -129,6 +129,23 @@ class LoggingConfig(BaseSettings):
     )
 
 
+class ProcessingConfig(BaseSettings):
+    """Processing pipeline configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="PROCESSING_", case_sensitive=False)
+
+    quartet_concurrency: int = Field(
+        default=5,
+        description="Max concurrent quartet processing tasks",
+        ge=1,
+        le=20,
+    )
+    enable_parallel_processing: bool = Field(
+        default=True,
+        description="Enable parallel quartet processing",
+    )
+
+
 class APIConfig(BaseSettings):
     """FastAPI server configuration."""
 
@@ -158,6 +175,7 @@ class Config(BaseSettings):
     aws: AWSConfig = Field(default_factory=AWSConfig)
     file_size_limits: FileSizeLimitsConfig = Field(default_factory=FileSizeLimitsConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     api: APIConfig = Field(default_factory=APIConfig)
 
     def validate_storage_config(self) -> None:

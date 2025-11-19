@@ -8,16 +8,109 @@ Orchestrates complete session processing workflow:
 5. Return session processing result
 """
 
+import asyncio
 import time
 from uuid import UUID
 
+from src.lib.config import get_config
 from src.lib.logging import get_logger, log_processing_result
-from src.models.result import SessionProcessingResult
+from src.models.result import ProcessingResult, SessionProcessingResult
+from src.models.session import FileQuartet
 from src.services.coordination import claim_next_session
 from src.services.pipeline import process_quartet
 from src.services.storage.session_storage import discover_quartets
 
 logger = get_logger(__name__)
+
+
+async def _process_quartets_parallel(
+    session_id: UUID, quartets: list[FileQuartet]
+) -> list[ProcessingResult]:
+    """Process quartets in parallel with controlled concurrency.
+
+    Args:
+        session_id: Session UUID
+        quartets: List of quartets to process
+
+    Returns:
+        list[ProcessingResult]: Results for all quartets (in same order as input)
+    """
+    config = get_config()
+    concurrency = config.processing.quartet_concurrency
+
+    logger.info(
+        "parallel_processing_start",
+        session_id=str(session_id),
+        quartet_count=len(quartets),
+        max_concurrency=concurrency,
+    )
+
+    # Create semaphore to limit concurrent operations
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def process_with_semaphore(quartet: FileQuartet) -> ProcessingResult:
+        """Process a single quartet with semaphore-controlled concurrency."""
+        async with semaphore:
+            logger.debug(
+                "quartet_processing_acquired_slot",
+                session_id=str(session_id),
+                sequence_number=quartet.sequence_number,
+            )
+            result = await process_quartet(session_id, quartet)
+            logger.debug(
+                "quartet_processing_released_slot",
+                session_id=str(session_id),
+                sequence_number=quartet.sequence_number,
+                success=result.success,
+            )
+            return result
+
+    # Process all quartets in parallel with semaphore limiting concurrency
+    results = await asyncio.gather(
+        *[process_with_semaphore(quartet) for quartet in quartets],
+        return_exceptions=False,  # Let exceptions propagate
+    )
+
+    logger.info(
+        "parallel_processing_complete",
+        session_id=str(session_id),
+        quartet_count=len(quartets),
+        max_concurrency=concurrency,
+    )
+
+    return results
+
+
+async def _process_quartets_sequential(
+    session_id: UUID, quartets: list[FileQuartet]
+) -> list[ProcessingResult]:
+    """Process quartets sequentially (original behavior).
+
+    Args:
+        session_id: Session UUID
+        quartets: List of quartets to process
+
+    Returns:
+        list[ProcessingResult]: Results for all quartets (in same order as input)
+    """
+    logger.info(
+        "sequential_processing_start",
+        session_id=str(session_id),
+        quartet_count=len(quartets),
+    )
+
+    results = []
+    for quartet in quartets:
+        result = await process_quartet(session_id, quartet)
+        results.append(result)
+
+    logger.info(
+        "sequential_processing_complete",
+        session_id=str(session_id),
+        quartet_count=len(quartets),
+    )
+
+    return results
 
 
 async def process_session(session_id: UUID) -> SessionProcessingResult:
@@ -37,6 +130,9 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
     logger.info("session_processing_start", session_id=str(session_id))
 
     try:
+        # Get configuration
+        config = get_config()
+
         # Discover quartets in session
         quartets = await discover_quartets(session_id)
 
@@ -44,18 +140,21 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
             "quartets_discovered_for_session",
             session_id=str(session_id),
             quartet_count=len(quartets),
+            parallel_processing_enabled=config.processing.enable_parallel_processing,
         )
 
-        # Process each quartet
-        quartet_results = []
+        # Process quartets (parallel or sequential based on config)
+        if config.processing.enable_parallel_processing:
+            quartet_results = await _process_quartets_parallel(session_id, quartets)
+        else:
+            quartet_results = await _process_quartets_sequential(session_id, quartets)
+
+        # Aggregate metrics from results
         success_count = 0
         failure_count = 0
         total_tokens = 0
 
-        for quartet in quartets:
-            result = await process_quartet(session_id, quartet)
-            quartet_results.append(result)
-
+        for result in quartet_results:
             if result.success:
                 success_count += 1
                 if result.ai_metrics:
