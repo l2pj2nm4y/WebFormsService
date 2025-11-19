@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from src.models.fact import FactFile, FormElements
+from src.models.page_identification import PageIdentification
 from src.models.result import AIMetrics, ProcessingResult
 from src.models.session import FileTriplet
 
@@ -26,14 +26,16 @@ def sample_triplet() -> FileTriplet:
 
 
 @pytest.fixture
-def sample_fact_file() -> FactFile:
-    """Provide sample fact file."""
-    return FactFile(
-        visual_headings=["Test Heading"],
-        visual_sections=["header", "content"],
-        form_elements=FormElements(has_forms=True, visible_fields=["text"], buttons=["Submit"]),
-        layout_pattern="Simple form",
-        content_keywords=["test", "form", "sample"],
+def sample_page_identification() -> PageIdentification:
+    """Provide sample page identification."""
+    return PageIdentification(
+        url="https://example.gov/test",
+        page_headings=["Test Heading"],
+        form_headings=["Test Form Section"],
+        visual_sections=["header", "content", "footer"],
+        navigation_buttons=["Submit", "Cancel"],
+        progress_indicator="50%",
+        page_number="1/2",
     )
 
 
@@ -42,25 +44,24 @@ class TestTripletProcessor:
 
     @pytest.mark.asyncio
     async def test_process_triplet_success(
-        self, sample_triplet: FileTriplet, sample_fact_file: FactFile
+        self, sample_triplet: FileTriplet, sample_page_identification: PageIdentification
     ) -> None:
         """Test successful triplet processing."""
         # Expected behavior:
         # 1. Load triplet files (screenshot, html, metadata)
-        # 2. Extract facts using AI
-        # 3. Write fact file to storage
+        # 2. Extract page identification using AI
+        # 3. Write page ID file to storage
         # 4. Return ProcessingResult
 
         session_id = UUID("550e8400-e29b-41d4-a716-446655440000")
 
-        # Expected result structure
+        # Expected result structure (note: triplet processor is deprecated, this test is for reference only)
         expected_result = ProcessingResult(
             session_id=session_id,
             sequence_number=1,
             operation="fact_extraction",
             success=True,
             duration_ms=2500.0,
-            fact_file_path=f"sessions/{session_id}/001-page.facts.json",
             ai_metrics=AIMetrics(
                 model="anthropic/claude-sonnet-4.5",
                 prompt_tokens=1500,
@@ -74,7 +75,6 @@ class TestTripletProcessor:
         assert expected_result.session_id == session_id
         assert expected_result.sequence_number == 1
         assert expected_result.success is True
-        assert expected_result.fact_file_path is not None
         assert expected_result.ai_metrics is not None
 
     @pytest.mark.asyncio

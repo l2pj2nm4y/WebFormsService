@@ -22,7 +22,7 @@ def sample_quartet() -> FileQuartet:
         screenshot_path="sessions/test-session/001-page.png",
         html_path="sessions/test-session/001-page.html",
         metadata_path="sessions/test-session/001-page.json",
-        scraped_facts_path="sessions/test-session/001-page.facts.json",
+        page_id_path="sessions/test-session/001-page.page.id.json",
     )
 
 

@@ -2,14 +2,14 @@
 
 This package contains Pydantic models for:
 - Session and FileTriplet (session.py)
-- FactFile (fact.py)
+- PageIdentification (page_identification.py)
 - PromptFile (prompt.py)
 - FormSchema (schema.py)
 - MasterFolder and EmbeddingsIndex (master.py)
 - ProcessingResult and SessionProcessingResult (result.py)
 """
 
-from src.models.fact import FactFile
+from src.models.page_identification import PageIdentification
 from src.models.master import EmbeddingsIndex, MasterFolder, PageEmbedding
 from src.models.prompt import FieldMetadata, PromptFile
 from src.models.result import AIMetrics, ProcessingResult, SessionProcessingResult
@@ -30,8 +30,8 @@ __all__ = [
     "Session",
     "FileTriplet",
     "FileQuartet",
-    # Fact models
-    "FactFile",
+    # Page identification models
+    "PageIdentification",
     # Prompt models
     "PromptFile",
     "FieldMetadata",

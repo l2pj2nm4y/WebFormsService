@@ -11,79 +11,60 @@ These tests define the contract that AI services must fulfill.
 
 import pytest
 
-from src.models.fact import FactFile, FormElements
+from src.models.page_identification import PageIdentification
 from src.models.prompt import PromptFile
 
 
-class TestFactExtractionContract:
-    """Contract tests for fact extraction from screenshots."""
+class TestPageIdentificationContract:
+    """Contract tests for page identification from screenshots."""
 
-    def test_fact_file_structure(self) -> None:
-        """Fact file must contain all required fields with correct types."""
-        fact = FactFile(
-            visual_headings=["Application for Naturalization", "Form N-400"],
-            visual_sections=["header", "main content", "footer"],
-            form_elements=FormElements(
-                has_forms=True,
-                visible_fields=["text", "text", "date"],
-                buttons=["Continue", "Save"],
-            ),
-            layout_pattern="Single column form with sequential fields",
-            content_keywords=["citizenship", "naturalization", "government"],
+    def test_page_identification_structure(self) -> None:
+        """PageIdentification must contain all required fields with correct types."""
+        page_id = PageIdentification(
+            url="https://example.gov/citizenship",
+            page_headings=["Application for Naturalization", "Form N-400"],
+            form_headings=["Part 1", "Personal Information"],
+            visual_sections=["header", "main_content_form", "footer"],
+            navigation_buttons=["Continue", "Save for Later", "Previous"],
+            progress_indicator="25%",
+            page_number="1/4",
         )
 
         # Verify structure
-        assert len(fact.visual_headings) <= 5
-        assert len(fact.visual_sections) >= 1
-        assert isinstance(fact.form_elements, FormElements)
-        assert isinstance(fact.form_elements.has_forms, bool)
-        assert 3 <= len(fact.content_keywords) <= 5
-        assert len(fact.layout_pattern) <= 500
+        assert isinstance(page_id.url, str) or page_id.url is None
+        assert isinstance(page_id.page_headings, list)
+        assert isinstance(page_id.form_headings, list)
+        assert isinstance(page_id.visual_sections, list)
+        assert isinstance(page_id.navigation_buttons, list)
+        assert isinstance(page_id.progress_indicator, str) or page_id.progress_indicator is None
+        assert isinstance(page_id.page_number, str) or page_id.page_number is None
 
-    def test_fact_file_validates_constraints(self) -> None:
-        """Fact file must enforce validation constraints."""
-        # Too many visual headings
-        with pytest.raises(ValueError):
-            FactFile(
-                visual_headings=["h1", "h2", "h3", "h4", "h5", "h6"],  # Max 5
-                visual_sections=["section"],
-                form_elements=FormElements(has_forms=False, visible_fields=[], buttons=[]),
-                layout_pattern="test",
-                content_keywords=["k1", "k2", "k3"],
-            )
+    def test_page_identification_optional_fields(self) -> None:
+        """PageIdentification must work with optional fields."""
+        # All optional fields
+        page_id = PageIdentification()
 
-        # Too few content keywords
-        with pytest.raises(ValueError):
-            FactFile(
-                visual_headings=["h1"],
-                visual_sections=["section"],
-                form_elements=FormElements(has_forms=False, visible_fields=[], buttons=[]),
-                layout_pattern="test",
-                content_keywords=["k1", "k2"],  # Min 3
-            )
+        assert page_id.url is None
+        assert page_id.page_headings == []
+        assert page_id.form_headings == []
+        assert page_id.visual_sections == []
+        assert page_id.navigation_buttons == []
+        assert page_id.progress_indicator is None
+        assert page_id.page_number is None
 
-        # Layout pattern too long
-        with pytest.raises(ValueError):
-            FactFile(
-                visual_headings=["h1"],
-                visual_sections=["section"],
-                form_elements=FormElements(has_forms=False, visible_fields=[], buttons=[]),
-                layout_pattern="x" * 501,  # Max 500
-                content_keywords=["k1", "k2", "k3"],
-            )
-
-    def test_form_elements_structure(self) -> None:
-        """FormElements must have required boolean and lists."""
-        form_elements = FormElements(
-            has_forms=True, visible_fields=["text", "email"], buttons=["Submit"]
+        # Some optional fields
+        page_id = PageIdentification(
+            page_headings=["Application Form"],
+            visual_sections=["header", "main"],
         )
 
-        assert isinstance(form_elements.has_forms, bool)
-        assert isinstance(form_elements.visible_fields, list)
-        assert isinstance(form_elements.buttons, list)
+        assert page_id.url is None
+        assert len(page_id.page_headings) == 1
+        assert len(page_id.visual_sections) == 2
+        assert page_id.progress_indicator is None
 
-    def test_fact_extraction_performance_contract(self) -> None:
-        """Fact extraction must meet performance SLA.
+    def test_page_identification_performance_contract(self) -> None:
+        """Page identification must meet performance SLA.
 
         Contract requirements:
         - Max 10 seconds latency

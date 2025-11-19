@@ -33,7 +33,7 @@ def sample_quartets() -> list[FileQuartet]:
             screenshot_path=f"sessions/test-session/{i:03d}-page.png",
             html_path=f"sessions/test-session/{i:03d}-page.html",
             metadata_path=f"sessions/test-session/{i:03d}-page.json",
-            scraped_facts_path=f"sessions/test-session/{i:03d}-page.facts.json",
+            page_id_path=f"sessions/test-session/{i:03d}-page.page.id.json",
         )
         for i in range(1, 11)  # 10 quartets
     ]

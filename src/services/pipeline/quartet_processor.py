@@ -152,7 +152,7 @@ async def process_quartet(session_id: UUID, quartet: FileQuartet) -> ProcessingR
                 "screenshot_path": quartet.screenshot_path,
                 "html_path": quartet.html_path,
                 "metadata_path": quartet.metadata_path,
-                "scraped_facts_path": quartet.scraped_facts_path,
+                "page_id_path": quartet.page_id_path,
             },
             system_state={
                 "duration_ms": duration_ms,
@@ -172,7 +172,7 @@ async def process_quartet(session_id: UUID, quartet: FileQuartet) -> ProcessingR
                 "screenshot_path": quartet.screenshot_path,
                 "html_path": quartet.html_path,
                 "metadata_path": quartet.metadata_path,
-                "scraped_facts_path": quartet.scraped_facts_path,
+                "page_id_path": quartet.page_id_path,
             },
         )
 

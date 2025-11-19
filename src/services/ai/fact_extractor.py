@@ -14,7 +14,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 
 from src.lib.config import get_config
 from src.lib.logging import get_logger, log_ai_operation
-from src.models.fact import FactFile
+from src.models.page_identification import PageIdentification
 
 logger = get_logger(__name__)
 
@@ -110,9 +110,9 @@ class FactExtractor:
             provider="openrouter",
         )
 
-        self.agent: Agent[None, FactFile] = Agent(
+        self.agent: Agent[None, PageIdentification] = Agent(
             model=model,
-            output_type=FactFile,
+            output_type=PageIdentification,
             system_prompt=FACT_EXTRACTION_SYSTEM_PROMPT,
         )
 
@@ -120,8 +120,8 @@ class FactExtractor:
 
     async def extract_facts(
         self, screenshot_bytes: bytes, sequence_number: int, session_id: str
-    ) -> tuple[FactFile, dict[str, Any]]:
-        """Extract facts from screenshot using AI vision.
+    ) -> tuple[PageIdentification, dict[str, Any]]:
+        """Extract page identification from screenshot using AI vision.
 
         Args:
             screenshot_bytes: Screenshot image bytes
@@ -129,7 +129,7 @@ class FactExtractor:
             session_id: Session identifier for logging
 
         Returns:
-            tuple[FactFile, dict]: Fact file and metrics dictionary
+            tuple[PageIdentification, dict]: Page identification and metrics dictionary
 
         Raises:
             ValueError: If AI response is invalid

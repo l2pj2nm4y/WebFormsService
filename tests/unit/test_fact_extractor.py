@@ -8,16 +8,15 @@ from uuid import UUID
 
 import pytest
 
-from src.models.fact import FactFile
+from src.models.page_identification import PageIdentification
 from src.services.ai.fact_extractor import FactExtractor
 
 
 @pytest.fixture
-def sample_fact_file() -> FactFile:
-    """Provide sample fact file for testing."""
-    return FactFile(
+def sample_page_identification() -> PageIdentification:
+    """Provide sample page identification for testing."""
+    return PageIdentification(
         url="https://example.gov/citizenship",
-        scratchpad="Sample scratchpad analysis of form",
         page_headings=["Application for Naturalization", "Form N-400"],
         form_headings=["Part 1", "Personal Information"],
         visual_sections=["header", "main_content_form", "footer"],
@@ -28,10 +27,10 @@ def sample_fact_file() -> FactFile:
 
 
 @pytest.fixture
-def mock_agent_result(sample_fact_file: FactFile) -> MagicMock:
+def mock_agent_result(sample_page_identification: PageIdentification) -> MagicMock:
     """Mock Pydantic AI agent result (pydantic-ai 1.11.1 API)."""
     mock_result = MagicMock()
-    mock_result.output = sample_fact_file  # Use .output for structured output
+    mock_result.output = sample_page_identification  # Use .output for structured output
     mock_result.usage.return_value = MagicMock(
         request_tokens=1500, response_tokens=400, total_tokens=1900
     )
@@ -45,7 +44,7 @@ class TestFactExtractor:
     async def test_extract_facts_success(
         self,
         sample_screenshot_bytes: bytes,
-        sample_fact_file: FactFile,
+        sample_page_identification: PageIdentification,
         mock_agent_result: MagicMock,
     ) -> None:
         """Test successful fact extraction from screenshot."""
@@ -59,13 +58,13 @@ class TestFactExtractor:
             extractor.agent = mock_agent
 
             # Extract facts
-            fact_file, metrics = await extractor.extract_facts(
+            page_id, metrics = await extractor.extract_facts(
                 sample_screenshot_bytes, sequence_number=1, session_id="test-session"
             )
 
             # Verify result
-            assert isinstance(fact_file, FactFile)
-            assert fact_file == sample_fact_file
+            assert isinstance(page_id, PageIdentification)
+            assert page_id == sample_page_identification
 
             # Verify metrics
             assert metrics["model"] == "anthropic/claude-sonnet-4.5"

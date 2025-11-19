@@ -6,6 +6,7 @@ These models capture the complete structure of a web form including:
 - Section organization
 - Table/array configurations
 - Validation rules
+- Page identification metadata
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from src.models.page_identification import PageIdentification
 
 
 class VisibilityRule(BaseModel):
@@ -191,4 +194,8 @@ class FormSchema(BaseModel):
     )
     sections: list[FormSection] = Field(
         ..., description="Form sections containing fields"
+    )
+    page_identification: PageIdentification = Field(
+        default_factory=PageIdentification,
+        description="Page-level metadata for identification and matching"
     )

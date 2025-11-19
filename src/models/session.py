@@ -41,21 +41,21 @@ class FileQuartet(BaseModel):
     """A set of four related files sharing a sequence number prefix.
 
     Represents one webpage snapshot during form-filling: screenshot (visual capture),
-    HTML (page source), metadata (browser context), and scraped facts (extracted data).
+    HTML (page source), metadata (browser context), and page identification (page matching data).
     """
 
     sequence_number: int = Field(..., description="Sequence number (1-999)", ge=1, le=999)
     screenshot_path: str = Field(..., description="Path to screenshot file (.png, .jpg)")
     html_path: str = Field(..., description="Path to HTML file (.html)")
     metadata_path: str = Field(..., description="Path to metadata file (.json)")
-    scraped_facts_path: str = Field(
-        ..., description="Path to scraped facts file (.facts.json)"
+    page_id_path: str = Field(
+        ..., description="Path to page identification file (.page.id.json)"
     )
     schema_file_path: str | None = Field(
         default=None, description="Path to generated schema file (.schema.json)"
     )
 
-    @field_validator("screenshot_path", "html_path", "metadata_path", "scraped_facts_path")
+    @field_validator("screenshot_path", "html_path", "metadata_path", "page_id_path")
     @classmethod
     def validate_paths(cls, v: str) -> str:
         """Validate file paths are non-empty."""
