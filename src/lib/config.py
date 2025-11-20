@@ -16,8 +16,8 @@ class AIConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="AI_", case_sensitive=False)
 
-    provider: Literal["openrouter"] = Field(
-        default="openrouter", description="AI provider selection"
+    provider: Literal["openrouter", "anthropic"] = Field(
+        default="openrouter", description="AI provider selection (openrouter or anthropic)"
     )
     fact_model: str = Field(
         default="anthropic/claude-sonnet-4.5",
@@ -53,6 +53,14 @@ class OpenRouterConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPENROUTER_", case_sensitive=False)
 
     api_key: str = Field(..., description="OpenRouter API key")
+
+
+class AnthropicConfig(BaseSettings):
+    """Anthropic API configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="ANTHROPIC_", case_sensitive=False)
+
+    api_key: str = Field(default="", description="Anthropic API key")
 
 
 class RedisConfig(BaseSettings):
@@ -175,6 +183,7 @@ class Config(BaseSettings):
     # Subsystem configurations
     ai: AIConfig = Field(default_factory=AIConfig)
     openrouter: OpenRouterConfig = Field(default_factory=OpenRouterConfig)
+    anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     s3: S3Config = Field(default_factory=S3Config)

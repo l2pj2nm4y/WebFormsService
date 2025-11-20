@@ -11,10 +11,13 @@ from typing import Any
 import httpx
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.messages import ImageUrl
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from src.lib.config import get_config
+from src.lib.image_utils import resize_image_for_vision_api
 from src.lib.logging import get_logger, log_ai_operation
 from src.models.schema import FormSchema
 
@@ -439,6 +442,14 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
 <example_output>
 {
     "page_identifier": "Australian citizenship by descent - Applicant details (3/22)",
+    "page_identification": {
+        "page_headings": ["Australian Citizenship by Descent Application"],
+        "form_headings": ["Applicant Details", "Personal Information", "Travel Documents"],
+        "visual_sections": ["header", "navigation_panel", "main_content_form", "footer"],
+        "navigation_buttons": ["Previous", "Save and Continue", "Exit Application"],
+        "progress_indicator": "15% complete",
+        "page_number": "3/22"
+    },
     "form_name": "CitizenshipByDescentApplication",
     "description": "Application for Australian citizenship by descent - collecting applicant's personal information and identity verification details",
     "sections": [
@@ -670,29 +681,65 @@ class SchemaGenerator:
             # No max_tokens specified - use model's default maximum
         )
 
-        # Create custom HTTP client with sub-provider headers for OpenRouter
-        # Force Anthropic as the exclusive provider with no fallbacks
-        http_client = httpx.AsyncClient(
-            headers={
-                'X-Provider-Order': 'Anthropic',  # Force Anthropic provider
-                'X-Allow-Fallbacks': 'false'       # Disable fallback to other providers
-            }
-        )
+        # Select provider based on configuration
+        if config.ai.provider == "anthropic":
+            model_name = config.ai.schema_model
 
-        # Create OpenRouter provider WITH sub-provider headers
-        # Headers force routing to Anthropic within OpenRouter
-        provider = OpenRouterProvider(
-            api_key=config.openrouter.api_key,
-            http_client=http_client,
-        )
+            # Create Anthropic provider with API key
+            provider = AnthropicProvider(api_key=config.anthropic.api_key)
 
-        # Create model using OpenAIChatModel with OpenRouter provider
-        # OpenRouter handles format conversion automatically
-        model = OpenAIChatModel(
-            config.ai.schema_model,  # e.g., "anthropic/claude-sonnet-4.5"
-            provider=provider,
-            settings=model_settings,
-        )
+            # Create model using direct Anthropic API
+            model = AnthropicModel(
+                model_name,
+                provider=provider,
+                settings=model_settings,
+            )
+
+            logger.info(
+                "schema_generator_initialized",
+                provider="anthropic",
+                model=model_name,
+                temperature=config.ai.temperature,
+            )
+
+            # Store provider type for image handling
+            self.provider_type = "anthropic"
+
+        else:
+            # OpenRouter provider with Anthropic sub-provider headers
+            # Create custom HTTP client with sub-provider headers for OpenRouter
+            # Force Anthropic as the exclusive provider with no fallbacks
+            http_client = httpx.AsyncClient(
+                headers={
+                    'X-Provider-Order': 'Anthropic',  # Force Anthropic provider
+                    'X-Allow-Fallbacks': 'false'       # Disable fallback to other providers
+                }
+            )
+
+            # Create OpenRouter provider WITH sub-provider headers
+            # Headers force routing to Anthropic within OpenRouter
+            provider = OpenRouterProvider(
+                api_key=config.openrouter.api_key,
+                http_client=http_client,
+            )
+
+            # Create model using OpenAIChatModel with OpenRouter provider
+            # OpenRouter handles format conversion automatically
+            model = OpenAIChatModel(
+                config.ai.schema_model,  # e.g., "anthropic/claude-sonnet-4.5"
+                provider=provider,
+                settings=model_settings,
+            )
+
+            logger.info(
+                "schema_generator_initialized",
+                provider="openrouter",
+                model=config.ai.schema_model,
+                temperature=config.ai.temperature,
+            )
+
+            # Store provider type for image handling
+            self.provider_type = "openrouter"
 
         self.agent: Agent[None, FormSchema] = Agent(
             model=model,
@@ -784,16 +831,21 @@ Examples of visibility rules:
                 base64_size=len(screenshot_b64),
                 model=self.model_name,
                 temperature=self.temperature,
+                provider=self.provider_type,
                 system_prompt=SCHEMA_GENERATION_SYSTEM_PROMPT[:200] + "...",
             )
 
-            # Run AI agent with vision - pass text and ImageUrl in user_prompt list
+            # Use ImageUrl with base64 data URI for all providers
+            # This format works universally with OpenRouter and direct Anthropic
+            image_content = ImageUrl(
+                url=f"data:{image_type};base64,{screenshot_b64}"
+            )
+
+            # Run AI agent with vision - pass text and image in user_prompt list
             result = await self.agent.run(
                 user_prompt=[
                     prompt_text,  # Text prompt first
-                    ImageUrl(
-                        url=f"data:{image_type};base64,{screenshot_b64}"
-                    ),  # Image as ImageUrl object
+                    image_content,  # Image in provider-appropriate format
                 ]
             )
 
