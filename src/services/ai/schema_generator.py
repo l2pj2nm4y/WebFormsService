@@ -30,65 +30,22 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
 </objective>
 
 <output_structure_specification>
-    <schema_definition>
-        Generate JSON that follows this exact structure:
-        {
-            "page_identifier": "string",
-            "form_name": "string",
-            "description": "string",
-            "sections": [
-                {
-                    "name": "string",
-                    "description": "string",
-                    "required": boolean,
-                    "fields": [
-                        {
-                            "name": "string",
-                            "type": "string|number|boolean|date|datetime|time|email|phone|url|file|currency|percentage|array|object",
-                            "required": boolean,
-                            "description": "string",
-                            "label": "string or null",
-                            "placeholder": "string or null",
-                            "default_value": any or null,
-                            "constraints": [
-                                {
-                                    "type": "string",
-                                    "value": any,
-                                    "message": "string or null"
-                                }
-                            ],
-                            "options": ["option1", "option2"] or null,
-                            "sensitive": boolean,
-                            "input_format": "string or null",
-                            "table_config": object or null,
-                            "array_config": {
-                                "item_type": "string",
-                                "min_items": number or null,
-                                "max_items": number or null,
-                                "allow_empty": boolean,
-                                "unique_field": "string or null"
-                            } or null,
-                            "visibility_rules": [
-                                {
-                                    "field": "string",
-                                    "operator": "equals|notEquals|contains|greaterThan|lessThan",
-                                    "value": any
-                                }
-                            ] or []
-                        }
-                    ],
-                    "subsections": [nested sections] or [],
-                    "visibility_rules": [
-                        {
-                            "field": "string",
-                            "operator": "equals|notEquals|contains|greaterThan|lessThan",
-                            "value": any
-                        }
-                    ] or []
-                }
-            ]
-        }
-    </schema_definition>
+    <page_identification_guidance>
+        Analyze the screenshot and populate the "page_identification" section with:
+
+        - "page_headings": Main page-level headings or titles visible at the top (not form section headings)
+        - "form_headings": Form section headings and subsection titles
+        - "visual_sections": Visual layout sections (header, left_navigation_panel, main_content_form, right_sidebar, footer, etc.)
+        - "navigation_buttons": Navigation button labels (Previous, Next, Save, Submit, etc.)
+        - "progress_indicator": Progress indicator if visible (e.g., '15%', 'Step 2 of 5')
+        - "page_number": Page number if visible (e.g., '3/20', 'Page 3 of 20')
+
+        Systematically analyze the screenshot for these page characteristics:
+        - What are the most prominent headings or titles you can see?
+        - How is the page visually organized (sections/layout)?
+        - Is there any progress indication or page number?
+        - Are there any page navigation buttons (next, previous, submit, home, etc)?
+    </page_identification_guidance>
 
     <field_types>
         <type>string - Text input field</type>
@@ -815,24 +772,6 @@ Examples of visibility rules:
 <enhancement_information>
 {scraped_facts}
 </enhancement_information>"""
-
-            # Add page identification instructions
-            prompt_text += """
-
-3. **Populating Page Identification**: Analyze the screenshot and populate the "page_identification" section with:
-   - "page_headings": Main page-level headings or titles visible at the top (not form section headings)
-   - "form_headings": Form section headings and subsection titles
-   - "visual_sections": Visual layout sections (header, left_navigation_panel, main_content_form, right_sidebar, footer, etc.)
-   - "navigation_buttons": Navigation button labels (Previous, Next, Save, Submit, etc.)
-   - "progress_indicator": Progress indicator if visible (e.g., '15%', 'Step 2 of 5')
-   - "page_number": Page number if visible (e.g., '3/20', 'Page 3 of 20')
-
-Systematically analyze the screenshot for these page characteristics:
-- What are the most prominent headings or titles you can see?
-- How is the page visually organized (sections/layout)?
-- Is there any progress indication or page number?
-- Are there any page navigation buttons (next, previous, submit, home, etc)?
-"""
 
             # Log the request being sent (without base64 image data)
             logger.info(

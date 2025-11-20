@@ -39,19 +39,19 @@ def resize_image_for_vision_api(
     target_dimension: int = 1568,
     max_dimension: int = 8000,
     quality: int = 95,
-    max_file_size_bytes: int = 5 * 1024 * 1024,  # 5MB
+    max_file_size_bytes: int = 10 * 1024 * 1024,  # 10MB
 ) -> tuple[bytes, ResizeMetadata]:
     """Resize image to optimal dimensions for Anthropic Vision API.
 
-    Resizes images to target dimension while maintaining aspect ratio
-    and ensuring compliance with API limits (8000x8000 pixels, 5MB file size).
+    Only resizes if image exceeds max_dimension on longest side OR exceeds max file size.
+    Preserves image detail by avoiding unnecessary resizing.
 
     Args:
         image_bytes: Raw image bytes (PNG or JPEG)
-        target_dimension: Optimal dimension for best API performance (default 1568px)
+        target_dimension: Not used - kept for backward compatibility
         max_dimension: Maximum allowed dimension (default 8000px for Anthropic)
         quality: JPEG/PNG quality for saving (1-100, default 95)
-        max_file_size_bytes: Maximum file size in bytes (default 5MB)
+        max_file_size_bytes: Maximum file size in bytes (default 10MB)
 
     Returns:
         tuple[bytes, ResizeMetadata]: Resized image bytes and metadata
@@ -64,33 +64,53 @@ def resize_image_for_vision_api(
         img = Image.open(io.BytesIO(image_bytes))
         original_size = (img.width, img.height)
         original_format = img.format
+        original_file_size = len(image_bytes)
 
         logger.debug(
             "processing_image",
             width=img.width,
             height=img.height,
             format=original_format,
+            file_size_mb=original_file_size / (1024 * 1024),
         )
 
-        # Determine if resize needed
-        needs_resize = img.width > target_dimension or img.height > target_dimension
+        # Determine if resize needed - only if exceeds max_dimension OR max file size
+        longest_side = max(img.width, img.height)
+        exceeds_dimension = longest_side > max_dimension
+        exceeds_file_size = original_file_size > max_file_size_bytes
+        needs_resize = exceeds_dimension or exceeds_file_size
 
         if needs_resize:
+            # Calculate target size to fit within max_dimension while maintaining aspect ratio
+            if exceeds_dimension:
+                # Resize based on dimension constraint
+                scale_factor = max_dimension / longest_side
+                new_width = int(img.width * scale_factor)
+                new_height = int(img.height * scale_factor)
+            else:
+                # Resize based on file size constraint - use a conservative estimate
+                # Start with 80% of max_dimension as target
+                scale_factor = (max_dimension * 0.8) / longest_side
+                new_width = int(img.width * scale_factor)
+                new_height = int(img.height * scale_factor)
+
             # Use thumbnail for optimal quality and aspect ratio preservation
             # LANCZOS provides best quality for downscaling
-            img.thumbnail((target_dimension, target_dimension), Image.Resampling.LANCZOS)
+            img.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
 
             logger.info(
                 "image_resized",
                 original_size=original_size,
                 new_size=(img.width, img.height),
-                target=target_dimension,
+                reason="dimension" if exceeds_dimension else "file_size",
+                original_file_size_mb=original_file_size / (1024 * 1024),
             )
         else:
             logger.debug(
-                "image_within_target",
+                "image_within_limits",
                 size=original_size,
-                target=target_dimension,
+                file_size_mb=original_file_size / (1024 * 1024),
+                max_dimension=max_dimension,
             )
 
         # Convert to bytes
