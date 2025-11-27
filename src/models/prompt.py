@@ -39,8 +39,8 @@ class FieldMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class FormInfo(BaseModel):
-    """Form-level context information for AI extraction."""
+class PageContext(BaseModel):
+    """Page-level context information for AI extraction and page identification."""
 
     form_name: str = Field(..., description="Name of the form")
     description: str = Field(..., description="Form description")
@@ -77,9 +77,9 @@ class PromptSection(BaseModel):
     description: str = Field(..., description="Section description for context")
     path: str = Field(..., description="Dot-notation path (e.g., 'Applicant.PersonalInfo')")
 
-    fields: dict[str, str] = Field(
+    fields: dict[str, str | list] = Field(
         default_factory=dict,
-        description="Fields in bracketed notation format: field_name -> '[Required: type - description]'",
+        description="Fields in bracketed notation format: field_name -> '[Required: type - description]' or array format",
     )
 
     subsections: list["PromptSection"] = Field(
@@ -112,7 +112,7 @@ class PromptFile(BaseModel):
         default="1.0", description="Schema version for compatibility"
     )
 
-    form_info: FormInfo = Field(..., description="Form-level context and metadata")
+    page_context: PageContext = Field(..., description="Page-level context and identification metadata")
 
     sections: list[PromptSection] = Field(
         ..., description="Hierarchical sections with fields in bracketed notation"
@@ -134,7 +134,7 @@ class PromptFile(BaseModel):
         json_schema_extra={
             "example": {
                 "schema_version": "1.0",
-                "form_info": {
+                "page_context": {
                     "form_name": "Application for Naturalization - N-400",
                     "description": "U.S. Citizenship Application",
                     "page_identifier": "page-3-applicant-details",
@@ -171,15 +171,22 @@ class PromptFile(BaseModel):
                         "name": "Employment History",
                         "description": "Record of employment in the last 5 years",
                         "path": "EmploymentHistory",
-                        "is_array": True,
-                        "is_table": True,
-                        "min_items": 1,
-                        "column_order": ["employer", "position", "startDate", "endDate"],
                         "fields": {
-                            "employer": "[Required: string - Company or organization name]",
-                            "position": "[Required: string - Job title or position]",
-                            "startDate": "[Required: date - Employment start date]",
-                            "endDate": "[Optional: date - Employment end date, leave blank if current]",
+                            "jobs": [
+                                {
+                                    "_arrayDescription": "Employment records for the last 5 years",
+                                    "_minItems": 1,
+                                    "_maxItems": 10,
+                                    "_allowEmpty": False,
+                                    "_isTable": True,
+                                },
+                                {
+                                    "employer": "[Required: string - Company or organization name]",
+                                    "position": "[Required: string - Job title or position]",
+                                    "startDate": "[Required: date - Employment start date]",
+                                    "endDate": "[Optional: date - Employment end date, leave blank if current]",
+                                },
+                            ],
                         },
                     },
                 ],

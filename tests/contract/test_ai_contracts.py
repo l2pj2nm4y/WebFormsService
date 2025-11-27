@@ -85,12 +85,12 @@ class TestPromptGenerationContract:
     """Contract tests for prompt/schema generation from screenshots."""
 
     def test_prompt_file_structure(self) -> None:
-        """Prompt file must contain form_info, sections, and metadata."""
-        from src.models.prompt import FormInfo, PromptSection
+        """Prompt file must contain page_context, sections, and metadata."""
+        from src.models.prompt import PageContext, PromptSection
 
         prompt = PromptFile(
             schema_version="1.0",
-            form_info=FormInfo(
+            page_context=PageContext(
                 form_name="Application Form",
                 description="Test application",
                 page_identifier="page-1",
@@ -111,19 +111,19 @@ class TestPromptGenerationContract:
         )
 
         assert prompt.schema_version == "1.0"
-        assert isinstance(prompt.form_info, FormInfo)
+        assert isinstance(prompt.page_context, PageContext)
         assert isinstance(prompt.sections, list)
         assert len(prompt.sections) > 0
         assert isinstance(prompt.metadata, dict)
 
     def test_prompt_file_validates_non_empty_sections(self) -> None:
         """Prompt file must have non-empty sections list."""
-        from src.models.prompt import FormInfo
+        from src.models.prompt import PageContext
 
         with pytest.raises(ValueError, match="sections list cannot be empty"):
             PromptFile(
                 schema_version="1.0",
-                form_info=FormInfo(
+                page_context=PageContext(
                     form_name="Test",
                     description="Test form",
                     page_identifier="test-1",
@@ -134,10 +134,10 @@ class TestPromptGenerationContract:
 
     def test_bracketed_notation_format(self) -> None:
         """Fields within sections must use bracketed notation format."""
-        from src.models.prompt import FormInfo, PromptSection
+        from src.models.prompt import PageContext, PromptSection
 
         prompt = PromptFile(
-            form_info=FormInfo(
+            page_context=PageContext(
                 form_name="Test Form",
                 description="Test",
                 page_identifier="test-1",
@@ -166,10 +166,10 @@ class TestPromptGenerationContract:
 
     def test_get_required_fields_method(self) -> None:
         """PromptFile must support extracting required field paths."""
-        from src.models.prompt import FormInfo, PromptSection
+        from src.models.prompt import PageContext, PromptSection
 
         prompt = PromptFile(
-            form_info=FormInfo(
+            page_context=PageContext(
                 form_name="Test Form",
                 description="Test",
                 page_identifier="test-1",
@@ -209,10 +209,10 @@ class TestPromptGenerationContract:
 
     def test_get_field_type_method(self) -> None:
         """PromptFile must support extracting field types."""
-        from src.models.prompt import FormInfo, PromptSection
+        from src.models.prompt import PageContext, PromptSection
 
         prompt = PromptFile(
-            form_info=FormInfo(
+            page_context=PageContext(
                 form_name="Test Form",
                 description="Test",
                 page_identifier="test-1",

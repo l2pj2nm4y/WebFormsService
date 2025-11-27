@@ -7,16 +7,21 @@ PromptFile format for data extraction.
 import pytest
 
 from src.models.page_identification import PageIdentification
-from src.models.prompt import FormInfo, PromptFile, PromptSection
+from src.models.prompt import PageContext, PromptFile, PromptSection
 from src.models.schema import (
+    ArrayConfig,
     FormField,
     FormFieldConstraint,
     FormSchema,
     FormSection,
+    TableConfig,
+    TableColumnConfig,
     VisibilityRule,
 )
 from src.services.transformers.schema_to_prompt import (
+    _build_array_notation,
     _field_to_bracket_notation,
+    _field_to_prompt_value,
     _process_section,
     formschema_to_promptfile,
 )
@@ -288,9 +293,9 @@ class TestFormSchemaToPromptFile:
 
         assert isinstance(result, PromptFile)
         assert result.schema_version == "1.0"
-        assert isinstance(result.form_info, FormInfo)
-        assert result.form_info.form_name == "Application Form"
-        assert result.form_info.url == "https://example.com/form"
+        assert isinstance(result.page_context, PageContext)
+        assert result.page_context.form_name == "Application Form"
+        assert result.page_context.url == "https://example.com/form"
         assert len(result.sections) == 1
         assert result.sections[0].name == "PersonalInfo"
 
@@ -383,13 +388,13 @@ class TestFormSchemaToPromptFile:
 
         result = formschema_to_promptfile(schema)
 
-        assert result.form_info.url == "https://uscis.gov/n-400"
-        assert result.form_info.page_headings == ["Application for Naturalization"]
-        assert result.form_info.form_headings == ["Part 3", "Personal Information"]
-        assert result.form_info.visual_sections == ["header", "main_content", "footer"]
-        assert result.form_info.navigation_buttons == ["Previous", "Next", "Save"]
-        assert result.form_info.progress_indicator == "15%"
-        assert result.form_info.page_number == "3/20"
+        assert result.page_context.url == "https://uscis.gov/n-400"
+        assert result.page_context.page_headings == ["Application for Naturalization"]
+        assert result.page_context.form_headings == ["Part 3", "Personal Information"]
+        assert result.page_context.visual_sections == ["header", "main_content", "footer"]
+        assert result.page_context.navigation_buttons == ["Previous", "Next", "Save"]
+        assert result.page_context.progress_indicator == "15%"
+        assert result.page_context.page_number == "3/20"
 
     def test_helper_methods_work_after_transformation(self) -> None:
         """Test that PromptFile helper methods work correctly after transformation."""
@@ -443,3 +448,266 @@ class TestFormSchemaToPromptFile:
         section = result.get_section_by_path("Section1")
         assert section is not None
         assert section.name == "Section1"
+
+
+class TestArrayNotation:
+    """Tests for array field transformation."""
+
+    def test_array_of_objects_transformation(self) -> None:
+        """Test transformation of array field with object items."""
+        field = FormField(
+            name="documents",
+            type="array",
+            description="List of travel documents",
+            required=False,
+            constraints=[],
+            array_config=ArrayConfig(
+                item_type="object",
+                min_items=0,
+                max_items=10,
+                allow_empty=True,
+                item_schema={
+                    "documentType": {
+                        "type": "string",
+                        "required": True,
+                        "description": "Type of document",
+                    },
+                    "documentNumber": {
+                        "type": "string",
+                        "required": True,
+                        "description": "Document ID number",
+                    },
+                    "expiryDate": {
+                        "type": "date",
+                        "required": False,
+                        "description": "Expiration date",
+                    },
+                },
+            ),
+        )
+
+        result = _build_array_notation(field)
+
+        # Should be a list with 2 elements
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+        # First element is metadata
+        metadata = result[0]
+        assert metadata["_arrayDescription"] == "List of travel documents"
+        assert metadata["_minItems"] == 0
+        assert metadata["_maxItems"] == 10
+        assert metadata["_allowEmpty"] is True
+        assert metadata["_isTable"] is False
+
+        # Second element is field definitions
+        field_def = result[1]
+        assert isinstance(field_def, dict)
+        assert "documentType" in field_def
+        assert "documentNumber" in field_def
+        assert "expiryDate" in field_def
+        assert field_def["documentType"] == "[Required: string - Type of document]"
+        assert field_def["documentNumber"] == "[Required: string - Document ID number]"
+        assert field_def["expiryDate"] == "[Optional: date - Expiration date]"
+
+    def test_array_of_primitives_transformation(self) -> None:
+        """Test transformation of array field with primitive items."""
+        field = FormField(
+            name="phoneNumbers",
+            type="phone",
+            description="Contact phone numbers",
+            required=True,
+            constraints=[],
+            array_config=ArrayConfig(
+                item_type="string",
+                min_items=1,
+                max_items=5,
+                allow_empty=False,
+            ),
+        )
+
+        result = _build_array_notation(field)
+
+        # Should be a list with 2 elements
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+        # First element is metadata
+        metadata = result[0]
+        assert metadata["_arrayDescription"] == "Contact phone numbers"
+        assert metadata["_minItems"] == 1
+        assert metadata["_maxItems"] == 5
+        assert metadata["_allowEmpty"] is False
+        assert metadata["_isTable"] is False
+
+        # Second element is bracketed notation string
+        field_def = result[1]
+        assert isinstance(field_def, str)
+        assert field_def == "[Required: phone - Contact phone numbers]"
+
+    def test_array_with_table_config(self) -> None:
+        """Test transformation of array field that is also a table."""
+        field = FormField(
+            name="employment",
+            type="array",
+            description="Employment history",
+            required=False,
+            constraints=[],
+            array_config=ArrayConfig(
+                item_type="object",
+                min_items=1,
+                max_items=10,
+                allow_empty=False,
+                item_schema={
+                    "employer": {
+                        "type": "string",
+                        "required": True,
+                        "description": "Company name",
+                    },
+                    "position": {
+                        "type": "string",
+                        "required": True,
+                        "description": "Job title",
+                    },
+                },
+            ),
+            table_config=TableConfig(
+                columns=[
+                    TableColumnConfig(
+                        name="employer",
+                        label="Employer",
+                        type="string",
+                        required=True,
+                        description="Company name",
+                    ),
+                    TableColumnConfig(
+                        name="position",
+                        label="Position",
+                        type="string",
+                        required=True,
+                        description="Job title",
+                    ),
+                ]
+            ),
+        )
+
+        result = _build_array_notation(field)
+
+        # Should have _isTable: True
+        metadata = result[0]
+        assert metadata["_isTable"] is True
+
+    def test_field_to_prompt_value_returns_string_for_non_array(self) -> None:
+        """Test _field_to_prompt_value returns string for regular fields."""
+        field = FormField(
+            name="firstName",
+            type="string",
+            description="Given name",
+            required=True,
+            constraints=[],
+        )
+
+        result = _field_to_prompt_value(field)
+
+        assert isinstance(result, str)
+        assert result == "[Required: string - Given name]"
+
+    def test_field_to_prompt_value_returns_list_for_array(self) -> None:
+        """Test _field_to_prompt_value returns list for array fields."""
+        field = FormField(
+            name="emails",
+            type="email",
+            description="Email addresses",
+            required=False,
+            constraints=[],
+            array_config=ArrayConfig(
+                item_type="string",
+                min_items=0,
+                max_items=5,
+                allow_empty=True,
+            ),
+        )
+
+        result = _field_to_prompt_value(field)
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+    def test_process_section_with_array_field(self) -> None:
+        """Test _process_section correctly handles array fields."""
+        section = FormSection(
+            name="Documents",
+            description="Travel documents section",
+            fields=[
+                FormField(
+                    name="passportNumber",
+                    type="string",
+                    description="Passport number",
+                    required=True,
+                    constraints=[],
+                ),
+                FormField(
+                    name="otherDocuments",
+                    type="array",
+                    description="Other travel documents",
+                    required=False,
+                    constraints=[],
+                    array_config=ArrayConfig(
+                        item_type="object",
+                        min_items=0,
+                        max_items=5,
+                        allow_empty=True,
+                        item_schema={
+                            "name": {
+                                "type": "string",
+                                "required": True,
+                                "description": "Document name",
+                            },
+                            "number": {
+                                "type": "string",
+                                "required": True,
+                                "description": "Document number",
+                            },
+                        },
+                    ),
+                ),
+            ],
+            subsections=[],
+        )
+
+        result = _process_section(section)
+
+        # Regular field should be string
+        assert isinstance(result.fields["passportNumber"], str)
+        assert result.fields["passportNumber"] == "[Required: string - Passport number]"
+
+        # Array field should be list
+        assert isinstance(result.fields["otherDocuments"], list)
+        assert len(result.fields["otherDocuments"]) == 2
+        assert result.fields["otherDocuments"][0]["_arrayDescription"] == "Other travel documents"
+        assert result.fields["otherDocuments"][0]["_isTable"] is False
+        assert isinstance(result.fields["otherDocuments"][1], dict)
+        assert "name" in result.fields["otherDocuments"][1]
+        assert "number" in result.fields["otherDocuments"][1]
+
+    def test_array_with_none_max_items(self) -> None:
+        """Test array metadata when max_items is None."""
+        field = FormField(
+            name="items",
+            type="array",
+            description="Items list",
+            required=False,
+            constraints=[],
+            array_config=ArrayConfig(
+                item_type="string",
+                min_items=None,
+                max_items=None,
+                allow_empty=True,
+            ),
+        )
+
+        result = _build_array_notation(field)
+
+        metadata = result[0]
+        assert metadata["_minItems"] == 0  # None becomes 0
+        assert metadata["_maxItems"] is None  # None stays None

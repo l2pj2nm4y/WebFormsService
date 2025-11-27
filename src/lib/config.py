@@ -17,7 +17,7 @@ class AIConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_", case_sensitive=False)
 
     provider: Literal["openrouter", "anthropic"] = Field(
-        default="openrouter", description="AI provider selection (openrouter or anthropic)"
+        description="AI provider selection (openrouter or anthropic)"
     )
     fact_model: str = Field(
         default="anthropic/claude-sonnet-4.5",

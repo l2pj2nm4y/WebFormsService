@@ -5,15 +5,15 @@ and validation rules using vision-capable AI models.
 """
 
 import base64
+import json
 import time
 from typing import Any
 
 import httpx
+from anthropic import AsyncAnthropic
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.messages import ImageUrl
-from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from src.lib.config import get_config
@@ -34,20 +34,22 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
 
 <output_structure_specification>
     <page_identification_guidance>
-        Analyze the screenshot and populate the "page_identification" section with:
+        CRITICAL: Extract EXACT text as it appears on the page - character-for-character accuracy is essential.
+        This data is used to match schemas from the same page across multiple screenshots.
 
-        - "page_headings": Main page-level headings or titles visible at the top (not form section headings)
-        - "form_headings": Form section headings and subsection titles
+        Fields to populate with EXACT text from screenshot:
+        - "page_headings": Main page-level headings or titles (exactly as shown)
+        - "form_headings": Form section headings and subsection titles (exactly as shown, preserve order)
         - "visual_sections": Visual layout sections (header, left_navigation_panel, main_content_form, right_sidebar, footer, etc.)
-        - "navigation_buttons": Navigation button labels (Previous, Next, Save, Submit, etc.)
+        - "navigation_buttons": Navigation button labels (exactly as shown)
         - "progress_indicator": Progress indicator if visible (e.g., '15%', 'Step 2 of 5')
         - "page_number": Page number if visible (e.g., '3/20', 'Page 3 of 20')
 
-        Systematically analyze the screenshot for these page characteristics:
+        Systematically analyze the screenshot:
         - What are the most prominent headings or titles you can see?
         - How is the page visually organized (sections/layout)?
         - Is there any progress indication or page number?
-        - Are there any page navigation buttons (next, previous, submit, home, etc)?
+        - Are there any page navigation buttons?
     </page_identification_guidance>
 
     <field_types>
@@ -674,39 +676,37 @@ class SchemaGenerator:
         """Initialize schema generator with configuration."""
         config = get_config()
 
-        # Create model settings with temperature only (no max_tokens limit)
-        # Claude Sonnet 4.5 supports up to 64K output tokens
-        model_settings = ModelSettings(
-            temperature=config.ai.temperature,
-            # No max_tokens specified - use model's default maximum
-        )
-
         # Select provider based on configuration
         if config.ai.provider == "anthropic":
-            model_name = config.ai.schema_model
-
-            # Create Anthropic provider with API key
-            provider = AnthropicProvider(api_key=config.anthropic.api_key)
-
-            # Create model using direct Anthropic API
-            model = AnthropicModel(
-                model_name,
-                provider=provider,
-                settings=model_settings,
+            # Use native Anthropic SDK for direct API access
+            self.anthropic_client = AsyncAnthropic(
+                api_key=config.anthropic.api_key
             )
+
+            self.provider_type = "anthropic"
+            self.model_name = config.ai.schema_model
+            self.temperature = config.ai.temperature
+            self.max_tokens = 64000  # Claude Sonnet 4.5 maximum output tokens
+
+            # No Pydantic AI agent for native Anthropic
+            self.agent = None
 
             logger.info(
                 "schema_generator_initialized",
                 provider="anthropic",
-                model=model_name,
-                temperature=config.ai.temperature,
+                model=self.model_name,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                sdk="native_anthropic",
             )
 
-            # Store provider type for image handling
-            self.provider_type = "anthropic"
-
         else:
-            # OpenRouter provider with Anthropic sub-provider headers
+            # OpenRouter via Pydantic AI (working solution)
+            model_settings = ModelSettings(
+                temperature=config.ai.temperature,
+                max_tokens=64000,  # Claude Sonnet 4.5 maximum output tokens
+            )
+
             # Create custom HTTP client with sub-provider headers for OpenRouter
             # Force Anthropic as the exclusive provider with no fallbacks
             http_client = httpx.AsyncClient(
@@ -717,38 +717,37 @@ class SchemaGenerator:
             )
 
             # Create OpenRouter provider WITH sub-provider headers
-            # Headers force routing to Anthropic within OpenRouter
             provider = OpenRouterProvider(
                 api_key=config.openrouter.api_key,
                 http_client=http_client,
             )
 
             # Create model using OpenAIChatModel with OpenRouter provider
-            # OpenRouter handles format conversion automatically
             model = OpenAIChatModel(
                 config.ai.schema_model,  # e.g., "anthropic/claude-sonnet-4.5"
                 provider=provider,
                 settings=model_settings,
             )
 
+            self.agent: Agent[None, FormSchema] = Agent(
+                model=model,
+                output_type=FormSchema,
+                system_prompt=SCHEMA_GENERATION_SYSTEM_PROMPT,
+                retries=3,
+            )
+
+            self.provider_type = "openrouter"
+            self.model_name = config.ai.schema_model
+            self.temperature = config.ai.temperature
+            self.anthropic_client = None
+
             logger.info(
                 "schema_generator_initialized",
                 provider="openrouter",
-                model=config.ai.schema_model,
-                temperature=config.ai.temperature,
+                model=self.model_name,
+                temperature=self.temperature,
+                sdk="pydantic_ai",
             )
-
-            # Store provider type for image handling
-            self.provider_type = "openrouter"
-
-        self.agent: Agent[None, FormSchema] = Agent(
-            model=model,
-            output_type=FormSchema,
-            system_prompt=SCHEMA_GENERATION_SYSTEM_PROMPT,
-        )
-
-        self.model_name = config.ai.schema_model
-        self.temperature = config.ai.temperature
 
     async def generate_schema(
         self,
@@ -777,13 +776,29 @@ class SchemaGenerator:
         start_time = time.time()
 
         try:
-            # Encode screenshot to base64
-            screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            # Resize image if needed to meet API limits (8000x8000 pixels, 10MB)
+            from src.lib.image_utils import resize_image_for_vision_api
 
-            # Determine image type (PNG or JPEG)
-            if screenshot_bytes.startswith(b"\x89PNG"):
+            resized_bytes, resize_metadata = resize_image_for_vision_api(
+                screenshot_bytes, max_dimension=8000, max_file_size_bytes=10 * 1024 * 1024
+            )
+
+            logger.debug(
+                "image_resize_check",
+                original_size=f"{resize_metadata['original_width']}x{resize_metadata['original_height']}",
+                new_size=f"{resize_metadata['new_width']}x{resize_metadata['new_height']}",
+                resized=resize_metadata["resized"],
+                within_limits=resize_metadata["within_api_limits"],
+                file_size_mb=resize_metadata["file_size_bytes"] / (1024 * 1024),
+            )
+
+            # Encode screenshot to base64
+            screenshot_b64 = base64.b64encode(resized_bytes).decode("utf-8")
+
+            # Determine image type (PNG or JPEG) from resized bytes
+            if resized_bytes.startswith(b"\x89PNG"):
                 image_type = "image/png"
-            elif screenshot_bytes.startswith(b"\xff\xd8\xff"):
+            elif resized_bytes.startswith(b"\xff\xd8\xff"):
                 image_type = "image/jpeg"
             else:
                 raise ValueError("Unsupported image format (expected PNG or JPEG)")
@@ -828,29 +843,174 @@ Examples of visibility rules:
                 prompt=prompt_text,
                 image_type=image_type,
                 image_size_bytes=len(screenshot_bytes),
-                base64_size=len(screenshot_b64),
                 model=self.model_name,
                 temperature=self.temperature,
                 provider=self.provider_type,
                 system_prompt=SCHEMA_GENERATION_SYSTEM_PROMPT[:200] + "...",
             )
 
-            # Use ImageUrl with base64 data URI for all providers
-            # This format works universally with OpenRouter and direct Anthropic
-            image_content = ImageUrl(
-                url=f"data:{image_type};base64,{screenshot_b64}"
-            )
+            # Route to appropriate provider
+            if self.provider_type == "anthropic":
+                # Native Anthropic SDK path
+                logger.debug(
+                    "using_native_anthropic_sdk",
+                    image_size=len(screenshot_bytes),
+                    base64_size=len(screenshot_b64),
+                )
 
-            # Run AI agent with vision - pass text and image in user_prompt list
-            result = await self.agent.run(
-                user_prompt=[
-                    prompt_text,  # Text prompt first
-                    image_content,  # Image in provider-appropriate format
-                ]
-            )
+                # Call native Anthropic SDK - standard messages API
+                # Add JSON schema instruction to system prompt
+                json_instruction = f"\n\nYou MUST respond with valid JSON matching this schema:\n{FormSchema.model_json_schema()}"
 
-            # Extract the FormSchema from the output
-            form_schema = result.output
+                response = await self.anthropic_client.messages.create(
+                    model=self.model_name,
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    timeout=3600.0,  # 1 hour timeout for large output token requests
+                    system=SCHEMA_GENERATION_SYSTEM_PROMPT + json_instruction,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": image_type,
+                                        "data": screenshot_b64,  # Raw base64 without data URI prefix
+                                    },
+                                },
+                                {
+                                    "type": "text",
+                                    "text": prompt_text,
+                                },
+                            ],
+                        }
+                    ],
+                )
+
+                # COMPREHENSIVE RESPONSE INSPECTION
+                # Log full response details to diagnose empty response issue
+                logger.info(
+                    "anthropic_full_response",
+                    response_id=response.id,
+                    model=response.model,
+                    stop_reason=response.stop_reason,
+                    stop_sequence=response.stop_sequence if hasattr(response, 'stop_sequence') else None,
+                    content_blocks_count=len(response.content),
+                    content_types=[type(block).__name__ for block in response.content],
+                    usage_input=response.usage.input_tokens,
+                    usage_output=response.usage.output_tokens,
+                )
+
+                # Log each content block individually to see actual structure
+                for idx, block in enumerate(response.content):
+                    block_text = block.text if hasattr(block, 'text') else None
+                    logger.info(
+                        "anthropic_content_block",
+                        block_index=idx,
+                        block_type=type(block).__name__,
+                        has_text=hasattr(block, 'text'),
+                        text_length=len(block_text) if block_text else 0,
+                        text_preview=block_text[:500] if block_text else str(block)[:500],
+                        text_is_empty=len(block_text) == 0 if block_text is not None else True,
+                    )
+
+                # Handle different stop reasons
+                if response.stop_reason == "max_tokens":
+                    logger.warning(
+                        "anthropic_max_tokens_reached",
+                        message="Response hit max_tokens limit, may be truncated",
+                        max_tokens=self.max_tokens,
+                        output_tokens=response.usage.output_tokens,
+                    )
+                elif response.stop_reason not in ["end_turn", "stop_sequence"]:
+                    logger.warning(
+                        "anthropic_unusual_stop_reason",
+                        stop_reason=response.stop_reason,
+                        message=f"Unusual stop_reason: {response.stop_reason}",
+                    )
+
+                # Extract text from first content block
+                response_text = response.content[0].text
+
+                logger.info(
+                    "anthropic_response_text_final",
+                    text_length=len(response_text),
+                    text_preview=response_text[:200] if len(response_text) > 200 else response_text,
+                    is_empty=len(response_text) == 0,
+                )
+
+                # Strip markdown code fences if present
+                # Anthropic API sometimes wraps JSON responses in ```json ... ```
+                cleaned_text = response_text.strip()
+                if cleaned_text.startswith("```json"):
+                    cleaned_text = cleaned_text[7:]  # Remove ```json
+                elif cleaned_text.startswith("```"):
+                    cleaned_text = cleaned_text[3:]  # Remove ```
+
+                if cleaned_text.endswith("```"):
+                    cleaned_text = cleaned_text[:-3]  # Remove closing ```
+
+                cleaned_text = cleaned_text.strip()
+
+                logger.info(
+                    "anthropic_json_cleaned",
+                    original_length=len(response_text),
+                    cleaned_length=len(cleaned_text),
+                    had_fences=cleaned_text != response_text.strip(),
+                )
+
+                # Parse JSON and validate with Pydantic
+                json_data = json.loads(cleaned_text)
+                form_schema = FormSchema.model_validate(json_data)
+
+                # Extract metrics from native SDK response
+                latency_ms = (time.time() - start_time) * 1000
+                metrics = {
+                    "model": self.model_name,
+                    "prompt_tokens": response.usage.input_tokens,
+                    "completion_tokens": response.usage.output_tokens,
+                    "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
+                    "latency_ms": latency_ms,
+                    "cost_usd": None,
+                }
+
+            else:
+                # OpenRouter via Pydantic AI (working solution)
+                image_content = ImageUrl(
+                    url=f"data:{image_type};base64,{screenshot_b64}"
+                )
+                logger.debug(
+                    "using_pydantic_ai_openrouter",
+                    provider="openrouter",
+                    base64_size=len(screenshot_b64),
+                )
+
+                # Run Pydantic AI agent with vision
+                result = await self.agent.run(
+                    user_prompt=[
+                        prompt_text,  # Text prompt first
+                        image_content,  # Image as data URI
+                    ]
+                )
+
+                # Extract the FormSchema from the output
+                form_schema = result.output
+
+                # Calculate metrics
+                latency_ms = (time.time() - start_time) * 1000
+
+                # Extract token usage from Pydantic AI result
+                usage = result.usage()
+                metrics = {
+                    "model": self.model_name,
+                    "prompt_tokens": usage.request_tokens or 0,
+                    "completion_tokens": usage.response_tokens or 0,
+                    "total_tokens": usage.total_tokens or 0,
+                    "latency_ms": latency_ms,
+                    "cost_usd": None,
+                }
 
             # Log the AI response
             logger.info(
@@ -864,20 +1024,6 @@ Examples of visibility rules:
                     len(section.fields) for section in form_schema.sections
                 ),
             )
-
-            # Calculate metrics
-            latency_ms = (time.time() - start_time) * 1000
-
-            # Extract token usage from result
-            usage = result.usage()
-            metrics = {
-                "model": self.model_name,
-                "prompt_tokens": usage.request_tokens or 0,
-                "completion_tokens": usage.response_tokens or 0,
-                "total_tokens": usage.total_tokens or 0,
-                "latency_ms": latency_ms,
-                "cost_usd": None,  # OpenRouter doesn't always provide cost
-            }
 
             # Log operation
             log_ai_operation(

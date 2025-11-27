@@ -114,11 +114,14 @@ async def _process_quartets_sequential(
     return results
 
 
-async def process_session(session_id: UUID) -> SessionProcessingResult:
+async def process_session(
+    session_id: UUID, quartet_limit: int | None = None
+) -> SessionProcessingResult:
     """Process a complete session: discover quartets, generate schemas, aggregate results.
 
     Args:
         session_id: Session UUID to process
+        quartet_limit: Optional limit on number of quartets to process (for debugging)
 
     Returns:
         SessionProcessingResult: Aggregate results with metrics
@@ -136,6 +139,18 @@ async def process_session(session_id: UUID) -> SessionProcessingResult:
 
         # Discover quartets in session
         quartets = await discover_quartets(session_id)
+        total_discovered = len(quartets)
+
+        # Apply quartet limit if specified (for debugging)
+        if quartet_limit is not None and quartet_limit > 0:
+            quartets = quartets[:quartet_limit]
+            logger.info(
+                "quartet_limit_applied",
+                session_id=str(session_id),
+                total_discovered=total_discovered,
+                processing_count=len(quartets),
+                limit=quartet_limit,
+            )
 
         logger.info(
             "quartets_discovered_for_session",

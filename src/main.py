@@ -29,19 +29,27 @@ def process(
     session_id: Annotated[
         str, typer.Argument(help="Session UUID to process")
     ],
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit", "-l",
+            help="Limit number of quartets to process (for debugging)"
+        ),
+    ] = None,
 ) -> None:
     """Process a specific session by UUID.
 
     Example:
         python -m src.main process 550e8400-e29b-41d4-a716-446655440000
+        python -m src.main process 550e8400-e29b-41d4-a716-446655440000 --limit 1
     """
     configure_logging()
 
-    logger.info("cli_process_session", session_id=session_id)
+    logger.info("cli_process_session", session_id=session_id, quartet_limit=limit)
 
     try:
         uuid = UUID(session_id)
-        result = asyncio.run(process_session(uuid))
+        result = asyncio.run(process_session(uuid, quartet_limit=limit))
 
         typer.echo("\n✅ Session processed successfully!")
         typer.echo(f"   Quartets: {result.triplets_processed}")
