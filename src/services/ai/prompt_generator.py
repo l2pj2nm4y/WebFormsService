@@ -1,21 +1,45 @@
 """AI-powered prompt generation for form automation.
 
 Generates form field definitions with bracketed notation format for filling instructions.
+Uses LiteLLM with OpenRouter and LangFuse for observability.
 """
 
 import base64
+import json
+import os
 import time
 from typing import Any
 
-from pydantic_ai import Agent
-from pydantic_ai.messages import ImageUrl
-from pydantic_ai.models.openai import OpenAIChatModel
+import litellm
+from litellm import acompletion
 
 from src.lib.config import get_config
 from src.lib.logging import get_logger, log_ai_operation
 from src.services.html.form_parser import FormField
 
 logger = get_logger(__name__)
+
+# Initialize LangFuse callbacks for LiteLLM
+_langfuse_initialized = False
+
+
+def _initialize_langfuse() -> None:
+    """Initialize LangFuse callbacks for LiteLLM tracing."""
+    global _langfuse_initialized
+    if _langfuse_initialized:
+        return
+
+    config = get_config()
+    if config.langfuse.enabled and config.langfuse.public_key:
+        litellm.success_callback = ["langfuse"]
+        litellm.failure_callback = ["langfuse"]
+        os.environ.setdefault("LANGFUSE_PUBLIC_KEY", config.langfuse.public_key)
+        os.environ.setdefault("LANGFUSE_SECRET_KEY", config.langfuse.secret_key)
+        os.environ.setdefault("LANGFUSE_HOST", config.langfuse.host)
+        logger.info("langfuse_tracing_enabled", host=config.langfuse.host)
+
+    _langfuse_initialized = True
+
 
 # System prompt for prompt generation - EXACT format as specified
 PROMPT_GENERATION_SYSTEM_PROMPT = """<role>
@@ -318,26 +342,102 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
 </output_rules>"""
 
 
+def _extract_cache_stats(usage: Any) -> tuple[int, int]:
+    """Extract cache statistics from LiteLLM usage object.
+
+    Args:
+        usage: LiteLLM usage object from response
+
+    Returns:
+        tuple[int, int]: (cache_read_tokens, cache_creation_tokens)
+    """
+    cache_creation = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    cache_read = 0
+
+    # Get cached_tokens from prompt_tokens_details (LiteLLM standard location)
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    if prompt_details:
+        if isinstance(prompt_details, dict):
+            cache_read = prompt_details.get("cached_tokens", 0) or 0
+        else:
+            cache_read = getattr(prompt_details, "cached_tokens", 0) or 0
+
+    # Fallback: check for cache_read_input_tokens direct attribute
+    if not cache_read:
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+
+    return cache_read, cache_creation
+
+
 class PromptGenerator:
-    """AI-powered prompt generation service."""
+    """AI-powered prompt generation service using LiteLLM."""
 
     def __init__(self) -> None:
         """Initialize prompt generator with configuration."""
+        _initialize_langfuse()
+
         config = get_config()
-
-        # Create Pydantic AI agent with OpenRouter provider
-        model = OpenAIChatModel(
-            config.ai.prompt_model,
-            provider="openrouter",
-        )
-
-        self.agent: Agent[None, dict[str, Any]] = Agent(
-            model=model,
-            output_type=dict[str, Any],
-            system_prompt=PROMPT_GENERATION_SYSTEM_PROMPT,
-        )
-
         self.model_name = config.ai.prompt_model
+        self.temperature = config.ai.temperature
+        self.max_tokens = config.ai.max_tokens
+        self.timeout = config.ai.timeout
+        self.enable_cache = config.ai.enable_cache
+        self.api_key = config.openrouter.api_key
+        self.site_url = config.openrouter.site_url
+        self.app_name = config.openrouter.app_name
+
+        logger.info(
+            "prompt_generator_initialized",
+            model=self.model_name,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            cache_enabled=self.enable_cache,
+        )
+
+    def _build_messages(
+        self,
+        screenshot_b64: str,
+        image_type: str,
+        prompt_text: str,
+    ) -> list[dict[str, Any]]:
+        """Build messages for LiteLLM completion call.
+
+        Args:
+            screenshot_b64: Base64-encoded screenshot
+            image_type: MIME type of image (image/png or image/jpeg)
+            prompt_text: User prompt text
+
+        Returns:
+            list[dict]: Messages for LiteLLM
+        """
+        # Build system message with cache control for Anthropic caching
+        if self.enable_cache:
+            system_message: dict[str, Any] = {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": PROMPT_GENERATION_SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            }
+        else:
+            system_message = {"role": "system", "content": PROMPT_GENERATION_SYSTEM_PROMPT}
+
+        # Build user message with image
+        user_message: dict[str, Any] = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt_text},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{image_type};base64,{screenshot_b64}"},
+                },
+            ],
+        }
+
+        return [system_message, user_message]
 
     async def generate_prompt(
         self,
@@ -351,7 +451,7 @@ class PromptGenerator:
         Args:
             screenshot_bytes: Raw screenshot image bytes
             form_fields: Parsed HTML form fields
-            sequence_number: Triplet sequence number
+            sequence_number: Quartet sequence number
             session_id: Session identifier for logging
 
         Returns:
@@ -387,30 +487,73 @@ class PromptGenerator:
                 image_size_bytes=len(screenshot_bytes),
             )
 
-            # Run AI agent with vision - pass text and ImageUrl in user_prompt list
-            result = await self.agent.run(
-                user_prompt=[
-                    prompt_text,
-                    ImageUrl(url=f"data:{image_type};base64,{screenshot_b64}")
-                ]
+            # Build messages
+            messages = self._build_messages(screenshot_b64, image_type, prompt_text)
+
+            # Call LiteLLM with OpenRouter
+            response = await acompletion(
+                model=self.model_name,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                api_key=self.api_key,
+                timeout=self.timeout,
+                # LangFuse metadata for trace grouping
+                metadata={
+                    "operation": "prompt_generation",
+                    "session_id": session_id,
+                    "sequence_number": sequence_number,
+                },
+                # OpenRouter headers
+                extra_headers={
+                    "HTTP-Referer": self.site_url,
+                    "X-Title": self.app_name,
+                },
+                # OpenRouter requires usage.include=true to return cache statistics
+                extra_body={
+                    "usage": {"include": True},
+                },
             )
 
-            # Extract the dynamic schema dictionary from the output
-            prompt_data = result.output
+            # Extract response text
+            response_text = response.choices[0].message.content
 
-            # Calculate metrics
+            # Strip markdown code fences if present
+            cleaned_text = response_text.strip() if response_text else ""
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            elif cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+            cleaned_text = cleaned_text.strip()
+
+            # Parse JSON
+            prompt_data = json.loads(cleaned_text)
+
+            # Extract metrics from response
+            usage = response.usage
+            cache_read, cache_creation = _extract_cache_stats(usage)
+
             latency_ms = (time.time() - start_time) * 1000
-
-            # Extract token usage from result
-            usage = result.usage()
             metrics = {
                 "model": self.model_name,
-                "prompt_tokens": usage.request_tokens or 0,
-                "completion_tokens": usage.response_tokens or 0,
-                "total_tokens": usage.total_tokens or 0,
+                "prompt_tokens": usage.prompt_tokens,
+                "completion_tokens": usage.completion_tokens,
+                "total_tokens": usage.prompt_tokens + usage.completion_tokens,
+                "cache_read_tokens": cache_read,
+                "cache_creation_tokens": cache_creation,
                 "latency_ms": latency_ms,
                 "cost_usd": None,
             }
+
+            logger.info(
+                "token_usage",
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                cache_read=cache_read,
+                cache_creation=cache_creation,
+            )
 
             # Log operation
             log_ai_operation(

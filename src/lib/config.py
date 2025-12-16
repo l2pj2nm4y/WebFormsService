@@ -3,6 +3,8 @@
 This module provides centralized configuration management with environment variable
 loading, validation, and type safety. All configuration is loaded from environment
 variables or .env files.
+
+Uses LiteLLM with OpenRouter as the AI provider and LangFuse for observability.
 """
 
 from typing import Literal
@@ -12,27 +14,28 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AIConfig(BaseSettings):
-    """AI provider and model configuration."""
+    """AI provider and model configuration.
+
+    Uses LiteLLM with OpenRouter as the provider.
+    Model names should be in OpenRouter format: 'openrouter/anthropic/claude-sonnet-4.5'
+    """
 
     model_config = SettingsConfigDict(env_prefix="AI_", case_sensitive=False)
 
-    provider: Literal["openrouter", "anthropic"] = Field(
-        description="AI provider selection (openrouter or anthropic)"
-    )
     fact_model: str = Field(
-        default="anthropic/claude-sonnet-4.5",
+        default="openrouter/anthropic/claude-sonnet-4.5",
         description="Model for fact extraction from screenshots",
     )
     schema_model: str = Field(
-        default="anthropic/claude-sonnet-4.5",
+        default="openrouter/anthropic/claude-sonnet-4.5",
         description="Model for form schema generation from screenshots",
     )
     prompt_model: str = Field(
-        default="anthropic/claude-sonnet-4.5",
+        default="openrouter/anthropic/claude-sonnet-4.5",
         description="Model for prompt/schema generation",
     )
     similarity_model: str = Field(
-        default="anthropic/claude-sonnet-4.5",
+        default="openrouter/anthropic/claude-sonnet-4.5",
         description="Model for similarity scoring",
     )
     embeddings_model: str = Field(
@@ -45,6 +48,22 @@ class AIConfig(BaseSettings):
         ge=0.0,
         le=2.0,
     )
+    max_tokens: int = Field(
+        default=64000,
+        description="Maximum output tokens for AI model",
+        ge=1,
+        le=128000,
+    )
+    timeout: float = Field(
+        default=120.0,
+        description="Timeout for AI API calls in seconds",
+        ge=10.0,
+        le=3600.0,
+    )
+    enable_cache: bool = Field(
+        default=True,
+        description="Enable Anthropic prompt caching via OpenRouter",
+    )
 
 
 class OpenRouterConfig(BaseSettings):
@@ -53,14 +72,37 @@ class OpenRouterConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPENROUTER_", case_sensitive=False)
 
     api_key: str = Field(..., description="OpenRouter API key")
+    site_url: str = Field(
+        default="https://webforms-service.local",
+        description="Site URL for OpenRouter HTTP-Referer header",
+    )
+    app_name: str = Field(
+        default="WebFormsService",
+        description="App name for OpenRouter X-Title header",
+    )
 
 
-class AnthropicConfig(BaseSettings):
-    """Anthropic API configuration."""
+class LangFuseConfig(BaseSettings):
+    """LangFuse observability configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="ANTHROPIC_", case_sensitive=False)
+    model_config = SettingsConfigDict(env_prefix="LANGFUSE_", case_sensitive=False)
 
-    api_key: str = Field(default="", description="Anthropic API key")
+    enabled: bool = Field(
+        default=True,
+        description="Enable LangFuse tracing for AI operations",
+    )
+    public_key: str = Field(
+        default="",
+        description="LangFuse public key",
+    )
+    secret_key: str = Field(
+        default="",
+        description="LangFuse secret key",
+    )
+    host: str = Field(
+        default="https://cloud.langfuse.com",
+        description="LangFuse API host",
+    )
 
 
 class RedisConfig(BaseSettings):
@@ -183,7 +225,7 @@ class Config(BaseSettings):
     # Subsystem configurations
     ai: AIConfig = Field(default_factory=AIConfig)
     openrouter: OpenRouterConfig = Field(default_factory=OpenRouterConfig)
-    anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
+    langfuse: LangFuseConfig = Field(default_factory=LangFuseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     s3: S3Config = Field(default_factory=S3Config)
@@ -202,6 +244,15 @@ class Config(BaseSettings):
                 raise ValueError(
                     "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required for S3 storage"
                 )
+
+    def validate_ai_config(self) -> None:
+        """Validate AI configuration."""
+        if not self.openrouter.api_key:
+            raise ValueError("OPENROUTER_API_KEY is required for AI operations")
+        if self.langfuse.enabled and not self.langfuse.public_key:
+            raise ValueError(
+                "LANGFUSE_PUBLIC_KEY is required when LANGFUSE_ENABLED=true"
+            )
 
 
 # Global configuration instance

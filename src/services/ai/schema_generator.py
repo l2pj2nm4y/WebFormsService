@@ -1,20 +1,19 @@
 """AI-powered form schema generation from screenshots.
 
 Generates comprehensive JSON schema representing form fields, sections,
-and validation rules using vision-capable AI models.
+and validation rules using vision-capable AI models via LiteLLM with OpenRouter.
+
+Uses LangFuse for observability and tracing.
 """
 
 import base64
 import json
+import os
 import time
 from typing import Any
 
-import httpx
-from anthropic import AsyncAnthropic
-from pydantic_ai import Agent, ModelSettings
-from pydantic_ai.messages import ImageUrl
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openrouter import OpenRouterProvider
+import litellm
+from litellm import acompletion
 
 from src.lib.config import get_config
 from src.lib.image_utils import resize_image_for_vision_api
@@ -22,6 +21,28 @@ from src.lib.logging import get_logger, log_ai_operation
 from src.models.schema import FormSchema
 
 logger = get_logger(__name__)
+
+# Initialize LangFuse callbacks for LiteLLM
+_langfuse_initialized = False
+
+
+def _initialize_langfuse() -> None:
+    """Initialize LangFuse callbacks for LiteLLM tracing."""
+    global _langfuse_initialized
+    if _langfuse_initialized:
+        return
+
+    config = get_config()
+    if config.langfuse.enabled and config.langfuse.public_key:
+        litellm.success_callback = ["langfuse"]
+        litellm.failure_callback = ["langfuse"]
+        os.environ.setdefault("LANGFUSE_PUBLIC_KEY", config.langfuse.public_key)
+        os.environ.setdefault("LANGFUSE_SECRET_KEY", config.langfuse.secret_key)
+        os.environ.setdefault("LANGFUSE_HOST", config.langfuse.host)
+        logger.info("langfuse_tracing_enabled", host=config.langfuse.host)
+
+    _langfuse_initialized = True
+
 
 # System prompt for schema generation - comprehensive form analysis
 SCHEMA_GENERATION_SYSTEM_PROMPT = """<role>
@@ -669,85 +690,109 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
 </output_rules>"""
 
 
+def _extract_cache_stats(usage: Any) -> tuple[int, int]:
+    """Extract cache statistics from LiteLLM usage object.
+
+    Args:
+        usage: LiteLLM usage object from response
+
+    Returns:
+        tuple[int, int]: (cache_read_tokens, cache_creation_tokens)
+    """
+    cache_creation = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    cache_read = 0
+
+    # Get cached_tokens from prompt_tokens_details (LiteLLM standard location)
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    if prompt_details:
+        if isinstance(prompt_details, dict):
+            cache_read = prompt_details.get("cached_tokens", 0) or 0
+        else:
+            cache_read = getattr(prompt_details, "cached_tokens", 0) or 0
+
+    # Fallback: check for cache_read_input_tokens direct attribute
+    if not cache_read:
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+
+    return cache_read, cache_creation
+
+
 class SchemaGenerator:
-    """AI-powered form schema generation service."""
+    """AI-powered form schema generation service using LiteLLM."""
 
     def __init__(self) -> None:
         """Initialize schema generator with configuration."""
+        _initialize_langfuse()
+
         config = get_config()
+        self.model_name = config.ai.schema_model
+        self.temperature = config.ai.temperature
+        self.max_tokens = config.ai.max_tokens
+        self.timeout = config.ai.timeout
+        self.enable_cache = config.ai.enable_cache
+        self.api_key = config.openrouter.api_key
+        self.site_url = config.openrouter.site_url
+        self.app_name = config.openrouter.app_name
 
-        # Select provider based on configuration
-        if config.ai.provider == "anthropic":
-            # Use native Anthropic SDK for direct API access
-            self.anthropic_client = AsyncAnthropic(
-                api_key=config.anthropic.api_key
-            )
+        logger.info(
+            "schema_generator_initialized",
+            model=self.model_name,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            cache_enabled=self.enable_cache,
+        )
 
-            self.provider_type = "anthropic"
-            self.model_name = config.ai.schema_model
-            self.temperature = config.ai.temperature
-            self.max_tokens = 64000  # Claude Sonnet 4.5 maximum output tokens
+    def _build_messages(
+        self,
+        screenshot_b64: str,
+        image_type: str,
+        prompt_text: str,
+    ) -> list[dict[str, Any]]:
+        """Build messages for LiteLLM completion call.
 
-            # No Pydantic AI agent for native Anthropic
-            self.agent = None
+        Args:
+            screenshot_b64: Base64-encoded screenshot
+            image_type: MIME type of image (image/png or image/jpeg)
+            prompt_text: User prompt text
 
-            logger.info(
-                "schema_generator_initialized",
-                provider="anthropic",
-                model=self.model_name,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                sdk="native_anthropic",
-            )
+        Returns:
+            list[dict]: Messages for LiteLLM
+        """
+        # Add JSON schema instruction to system prompt
+        json_instruction = (
+            f"\n\nYou MUST respond with valid JSON matching this schema:\n"
+            f"{FormSchema.model_json_schema()}"
+        )
+        full_system_prompt = SCHEMA_GENERATION_SYSTEM_PROMPT + json_instruction
 
+        # Build system message with cache control for Anthropic caching
+        if self.enable_cache:
+            system_message: dict[str, Any] = {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": full_system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            }
         else:
-            # OpenRouter via Pydantic AI (working solution)
-            model_settings = ModelSettings(
-                temperature=config.ai.temperature,
-                max_tokens=64000,  # Claude Sonnet 4.5 maximum output tokens
-            )
+            system_message = {"role": "system", "content": full_system_prompt}
 
-            # Create custom HTTP client with sub-provider headers for OpenRouter
-            # Force Anthropic as the exclusive provider with no fallbacks
-            http_client = httpx.AsyncClient(
-                headers={
-                    'X-Provider-Order': 'Anthropic',  # Force Anthropic provider
-                    'X-Allow-Fallbacks': 'false'       # Disable fallback to other providers
-                }
-            )
+        # Build user message with image
+        user_message: dict[str, Any] = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt_text},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{image_type};base64,{screenshot_b64}"},
+                },
+            ],
+        }
 
-            # Create OpenRouter provider WITH sub-provider headers
-            provider = OpenRouterProvider(
-                api_key=config.openrouter.api_key,
-                http_client=http_client,
-            )
-
-            # Create model using OpenAIChatModel with OpenRouter provider
-            model = OpenAIChatModel(
-                config.ai.schema_model,  # e.g., "anthropic/claude-sonnet-4.5"
-                provider=provider,
-                settings=model_settings,
-            )
-
-            self.agent: Agent[None, FormSchema] = Agent(
-                model=model,
-                output_type=FormSchema,
-                system_prompt=SCHEMA_GENERATION_SYSTEM_PROMPT,
-                retries=3,
-            )
-
-            self.provider_type = "openrouter"
-            self.model_name = config.ai.schema_model
-            self.temperature = config.ai.temperature
-            self.anthropic_client = None
-
-            logger.info(
-                "schema_generator_initialized",
-                provider="openrouter",
-                model=self.model_name,
-                temperature=self.temperature,
-                sdk="pydantic_ai",
-            )
+        return [system_message, user_message]
 
     async def generate_schema(
         self,
@@ -761,7 +806,7 @@ class SchemaGenerator:
 
         Args:
             screenshot_bytes: Screenshot image bytes
-            sequence_number: Triplet sequence number
+            sequence_number: Quartet sequence number
             session_id: Session identifier for logging
             scraped_facts: Optional scraped facts text to enhance schema generation
             metadata: Optional metadata dictionary containing url and timestamp
@@ -777,8 +822,6 @@ class SchemaGenerator:
 
         try:
             # Resize image if needed to meet API limits (8000x8000 pixels, 10MB)
-            from src.lib.image_utils import resize_image_for_vision_api
-
             resized_bytes, resize_metadata = resize_image_for_vision_api(
                 screenshot_bytes, max_dimension=8000, max_file_size_bytes=10 * 1024 * 1024
             )
@@ -840,177 +883,97 @@ Examples of visibility rules:
                 "ai_request_sending",
                 session_id=session_id,
                 sequence_number=sequence_number,
-                prompt=prompt_text,
+                prompt=prompt_text[:200] + "..." if len(prompt_text) > 200 else prompt_text,
                 image_type=image_type,
                 image_size_bytes=len(screenshot_bytes),
                 model=self.model_name,
                 temperature=self.temperature,
-                provider=self.provider_type,
-                system_prompt=SCHEMA_GENERATION_SYSTEM_PROMPT[:200] + "...",
             )
 
-            # Route to appropriate provider
-            if self.provider_type == "anthropic":
-                # Native Anthropic SDK path
-                logger.debug(
-                    "using_native_anthropic_sdk",
-                    image_size=len(screenshot_bytes),
-                    base64_size=len(screenshot_b64),
-                )
+            # Build messages
+            messages = self._build_messages(screenshot_b64, image_type, prompt_text)
 
-                # Call native Anthropic SDK - standard messages API
-                # Add JSON schema instruction to system prompt
-                json_instruction = f"\n\nYou MUST respond with valid JSON matching this schema:\n{FormSchema.model_json_schema()}"
+            # Call LiteLLM with OpenRouter
+            response = await acompletion(
+                model=self.model_name,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                api_key=self.api_key,
+                timeout=self.timeout,
+                # LangFuse metadata for trace grouping
+                metadata={
+                    "operation": "schema_generation",
+                    "session_id": session_id,
+                    "sequence_number": sequence_number,
+                },
+                # OpenRouter headers
+                extra_headers={
+                    "HTTP-Referer": self.site_url,
+                    "X-Title": self.app_name,
+                },
+                # OpenRouter requires usage.include=true to return cache statistics
+                extra_body={
+                    "usage": {"include": True},
+                },
+            )
 
-                response = await self.anthropic_client.messages.create(
-                    model=self.model_name,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    timeout=3600.0,  # 1 hour timeout for large output token requests
-                    system=SCHEMA_GENERATION_SYSTEM_PROMPT + json_instruction,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": image_type,
-                                        "data": screenshot_b64,  # Raw base64 without data URI prefix
-                                    },
-                                },
-                                {
-                                    "type": "text",
-                                    "text": prompt_text,
-                                },
-                            ],
-                        }
-                    ],
-                )
+            # Extract response text
+            response_text = response.choices[0].message.content
 
-                # COMPREHENSIVE RESPONSE INSPECTION
-                # Log full response details to diagnose empty response issue
-                logger.info(
-                    "anthropic_full_response",
-                    response_id=response.id,
-                    model=response.model,
-                    stop_reason=response.stop_reason,
-                    stop_sequence=response.stop_sequence if hasattr(response, 'stop_sequence') else None,
-                    content_blocks_count=len(response.content),
-                    content_types=[type(block).__name__ for block in response.content],
-                    usage_input=response.usage.input_tokens,
-                    usage_output=response.usage.output_tokens,
-                )
+            logger.debug(
+                "ai_response_received_raw",
+                text_length=len(response_text) if response_text else 0,
+                text_preview=response_text[:200] if response_text else None,
+            )
 
-                # Log each content block individually to see actual structure
-                for idx, block in enumerate(response.content):
-                    block_text = block.text if hasattr(block, 'text') else None
-                    logger.info(
-                        "anthropic_content_block",
-                        block_index=idx,
-                        block_type=type(block).__name__,
-                        has_text=hasattr(block, 'text'),
-                        text_length=len(block_text) if block_text else 0,
-                        text_preview=block_text[:500] if block_text else str(block)[:500],
-                        text_is_empty=len(block_text) == 0 if block_text is not None else True,
-                    )
-
-                # Handle different stop reasons
-                if response.stop_reason == "max_tokens":
+            # Handle different stop reasons
+            if hasattr(response.choices[0], "finish_reason"):
+                finish_reason = response.choices[0].finish_reason
+                if finish_reason == "length":
                     logger.warning(
-                        "anthropic_max_tokens_reached",
+                        "response_truncated",
                         message="Response hit max_tokens limit, may be truncated",
                         max_tokens=self.max_tokens,
-                        output_tokens=response.usage.output_tokens,
-                    )
-                elif response.stop_reason not in ["end_turn", "stop_sequence"]:
-                    logger.warning(
-                        "anthropic_unusual_stop_reason",
-                        stop_reason=response.stop_reason,
-                        message=f"Unusual stop_reason: {response.stop_reason}",
                     )
 
-                # Extract text from first content block
-                response_text = response.content[0].text
+            # Strip markdown code fences if present
+            cleaned_text = response_text.strip() if response_text else ""
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            elif cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+            cleaned_text = cleaned_text.strip()
 
-                logger.info(
-                    "anthropic_response_text_final",
-                    text_length=len(response_text),
-                    text_preview=response_text[:200] if len(response_text) > 200 else response_text,
-                    is_empty=len(response_text) == 0,
-                )
+            # Parse JSON and validate with Pydantic
+            json_data = json.loads(cleaned_text)
+            form_schema = FormSchema.model_validate(json_data)
 
-                # Strip markdown code fences if present
-                # Anthropic API sometimes wraps JSON responses in ```json ... ```
-                cleaned_text = response_text.strip()
-                if cleaned_text.startswith("```json"):
-                    cleaned_text = cleaned_text[7:]  # Remove ```json
-                elif cleaned_text.startswith("```"):
-                    cleaned_text = cleaned_text[3:]  # Remove ```
+            # Extract metrics from response
+            usage = response.usage
+            cache_read, cache_creation = _extract_cache_stats(usage)
 
-                if cleaned_text.endswith("```"):
-                    cleaned_text = cleaned_text[:-3]  # Remove closing ```
+            latency_ms = (time.time() - start_time) * 1000
+            metrics = {
+                "model": self.model_name,
+                "prompt_tokens": usage.prompt_tokens,
+                "completion_tokens": usage.completion_tokens,
+                "total_tokens": usage.prompt_tokens + usage.completion_tokens,
+                "cache_read_tokens": cache_read,
+                "cache_creation_tokens": cache_creation,
+                "latency_ms": latency_ms,
+                "cost_usd": None,
+            }
 
-                cleaned_text = cleaned_text.strip()
-
-                logger.info(
-                    "anthropic_json_cleaned",
-                    original_length=len(response_text),
-                    cleaned_length=len(cleaned_text),
-                    had_fences=cleaned_text != response_text.strip(),
-                )
-
-                # Parse JSON and validate with Pydantic
-                json_data = json.loads(cleaned_text)
-                form_schema = FormSchema.model_validate(json_data)
-
-                # Extract metrics from native SDK response
-                latency_ms = (time.time() - start_time) * 1000
-                metrics = {
-                    "model": self.model_name,
-                    "prompt_tokens": response.usage.input_tokens,
-                    "completion_tokens": response.usage.output_tokens,
-                    "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
-                    "latency_ms": latency_ms,
-                    "cost_usd": None,
-                }
-
-            else:
-                # OpenRouter via Pydantic AI (working solution)
-                image_content = ImageUrl(
-                    url=f"data:{image_type};base64,{screenshot_b64}"
-                )
-                logger.debug(
-                    "using_pydantic_ai_openrouter",
-                    provider="openrouter",
-                    base64_size=len(screenshot_b64),
-                )
-
-                # Run Pydantic AI agent with vision
-                result = await self.agent.run(
-                    user_prompt=[
-                        prompt_text,  # Text prompt first
-                        image_content,  # Image as data URI
-                    ]
-                )
-
-                # Extract the FormSchema from the output
-                form_schema = result.output
-
-                # Calculate metrics
-                latency_ms = (time.time() - start_time) * 1000
-
-                # Extract token usage from Pydantic AI result
-                usage = result.usage()
-                metrics = {
-                    "model": self.model_name,
-                    "prompt_tokens": usage.request_tokens or 0,
-                    "completion_tokens": usage.response_tokens or 0,
-                    "total_tokens": usage.total_tokens or 0,
-                    "latency_ms": latency_ms,
-                    "cost_usd": None,
-                }
+            logger.info(
+                "token_usage",
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                cache_read=cache_read,
+                cache_creation=cache_creation,
+            )
 
             # Log the AI response
             logger.info(
@@ -1020,9 +983,7 @@ Examples of visibility rules:
                 page_identifier=form_schema.page_identifier,
                 form_name=form_schema.form_name,
                 sections_count=len(form_schema.sections),
-                total_fields=sum(
-                    len(section.fields) for section in form_schema.sections
-                ),
+                total_fields=sum(len(section.fields) for section in form_schema.sections),
             )
 
             # Log operation
@@ -1042,9 +1003,7 @@ Examples of visibility rules:
                 session_id=session_id,
                 sequence_number=sequence_number,
                 sections_count=len(form_schema.sections),
-                total_fields=sum(
-                    len(section.fields) for section in form_schema.sections
-                ),
+                total_fields=sum(len(section.fields) for section in form_schema.sections),
                 latency_ms=latency_ms,
             )
 
