@@ -179,7 +179,7 @@ from src.services.orchestrator import process_session_pipeline
 session_id = UUID("550e8400-e29b-41d4-a716-446655440000")
 result = await process_session_pipeline(session_id)
 
-print(f"Processed {result['triplets_processed']} triplets")
+print(f"Processed {result['quartets_processed']} quartets")
 print(f"Identified {result['unique_pages']} unique pages")
 print(f"Added {result['pages_added_to_master']} pages to master")
 print(f"Combined prompt: {result['combined_prompt_path']}")

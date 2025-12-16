@@ -309,7 +309,7 @@ class TestProcessSession:
 
             # Verify result
             assert isinstance(result, SessionProcessingResult)
-            assert result.triplets_processed == 10
+            assert result.quartets_processed == 10
             assert result.success_count == 10
             assert result.failure_count == 0
             assert result.total_tokens == 28000  # 10 * 2800
@@ -352,7 +352,7 @@ class TestProcessSession:
 
             # Verify result
             assert isinstance(result, SessionProcessingResult)
-            assert result.triplets_processed == 10
+            assert result.quartets_processed == 10
             assert result.success_count == 10
 
     @pytest.mark.asyncio
@@ -406,7 +406,7 @@ class TestProcessSession:
             result = await process_session(session_id)
 
             # Verify result counts
-            assert result.triplets_processed == 10
+            assert result.quartets_processed == 10
             assert result.success_count == 5  # Odd numbers succeed
             assert result.failure_count == 5  # Even numbers fail
             assert result.success_rate() == 50.0  # Returns percentage, not decimal

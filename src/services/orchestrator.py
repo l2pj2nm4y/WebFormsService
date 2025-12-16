@@ -223,7 +223,7 @@ async def process_session(
         # Create session result
         session_result = SessionProcessingResult(
             session_id=session_id,
-            triplets_processed=len(quartets),  # Reusing field name for backward compatibility
+            quartets_processed=len(quartets),  # Reusing field name for backward compatibility
             success_count=success_count,
             failure_count=failure_count,
             total_duration_ms=total_duration_ms,
@@ -239,7 +239,7 @@ async def process_session(
             logger,
             operation="session_processing",
             session_id=str(session_id),
-            triplets_processed=len(quartets),
+            quartets_processed=len(quartets),
             success_count=success_count,
             failure_count=failure_count,
             total_tokens=total_tokens,

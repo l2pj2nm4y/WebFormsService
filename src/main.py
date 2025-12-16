@@ -52,7 +52,7 @@ def process(
         result = asyncio.run(process_session(uuid, quartet_limit=limit))
 
         typer.echo("\n✅ Session processed successfully!")
-        typer.echo(f"   Quartets: {result.triplets_processed}")
+        typer.echo(f"   Quartets: {result.quartets_processed}")
         typer.echo(f"   Success: {result.success_count}")
         typer.echo(f"   Failed: {result.failure_count}")
         typer.echo(f"   Success Rate: {result.success_rate():.1f}%")
@@ -90,7 +90,7 @@ def worker() -> None:
                 if result:
                     typer.echo(
                         f"\n✅ Session {result.session_id} complete "
-                        f"({result.success_count}/{result.triplets_processed} quartets success)"
+                        f"({result.success_count}/{result.quartets_processed} quartets success)"
                     )
                 else:
                     # Queue empty, wait before trying again

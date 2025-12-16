@@ -59,7 +59,7 @@ async def test_complete_fact_extraction_pipeline(
     # result = await process_session(session_id)
     #
     # assert result.session_id == session_id
-    # assert result.triplets_processed == 1
+    # assert result.quartets_processed == 1
     # assert result.success_count == 1
     # assert result.failure_count == 0
     # assert result.success_rate() == 100.0
@@ -116,7 +116,7 @@ async def test_pipeline_handles_multiple_triplets(
     # Expected behavior:
     # result = await process_session(session_id)
     #
-    # assert result.triplets_processed == 3
+    # assert result.quartets_processed == 3
     # assert result.success_count == 3
     # assert len(result.triplet_results) == 3
 
@@ -139,7 +139,7 @@ async def test_pipeline_handles_partial_failures(test_storage_dir: Path) -> None
     # Expected behavior:
     # result = await process_session(session_id)
     #
-    # assert result.triplets_processed >= 0
+    # assert result.quartets_processed >= 0
     # assert result.failure_count >= 0
     # # Should not crash, should log error and continue
 

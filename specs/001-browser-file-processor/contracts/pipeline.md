@@ -670,8 +670,8 @@ async def process_session_pipeline(session_id: UUID) -> Dict[str, Any]:
 
         return {
             "session_id": str(session_id),
-            "triplets_processed": len(successful_outputs),
-            "triplets_failed": len(triplet_outputs) - len(successful_outputs),
+            "quartets_processed": len(successful_outputs),
+            "quartets_failed": len(quartet_outputs) - len(successful_outputs),
             "unique_pages": session_merge_output.unique_pages,
             "pages_added_to_master": master_merge_output.pages_added,
             "pages_updated_in_master": master_merge_output.pages_updated,

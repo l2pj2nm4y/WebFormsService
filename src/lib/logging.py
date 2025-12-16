@@ -218,7 +218,7 @@ def log_processing_result(
     logger: structlog.stdlib.BoundLogger,
     operation: str,
     session_id: str,
-    triplets_processed: int,
+    quartets_processed: int,
     success_count: int,
     failure_count: int,
     total_tokens: int,
@@ -231,7 +231,7 @@ def log_processing_result(
         logger: Logger instance
         operation: Operation name (session_processing, batch_processing, etc.)
         session_id: Session identifier
-        triplets_processed: Number of triplets processed
+        quartets_processed: Number of quartets processed
         success_count: Number of successful operations
         failure_count: Number of failed operations
         total_tokens: Total AI tokens used
@@ -242,10 +242,10 @@ def log_processing_result(
         "processing_result",
         operation=operation,
         session_id=session_id,
-        triplets_processed=triplets_processed,
+        quartets_processed=quartets_processed,
         success_count=success_count,
         failure_count=failure_count,
-        success_rate=(success_count / triplets_processed * 100) if triplets_processed > 0 else 0,
+        success_rate=(success_count / quartets_processed * 100) if quartets_processed > 0 else 0,
         total_tokens=total_tokens,
         total_cost_usd=total_cost_usd,
         duration_ms=duration_ms,

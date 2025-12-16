@@ -113,7 +113,7 @@ class SessionProcessingResult(BaseModel):
     """
 
     session_id: UUID = Field(..., description="Session identifier")
-    triplets_processed: int = Field(..., description="Number of triplets processed", ge=0)
+    quartets_processed: int = Field(..., description="Number of quartets processed", ge=0)
     success_count: int = Field(
         ..., description="Number of successful operations", ge=0
     )
@@ -147,9 +147,9 @@ class SessionProcessingResult(BaseModel):
         Returns:
             float: Success rate (0-100)
         """
-        if self.triplets_processed == 0:
+        if self.quartets_processed == 0:
             return 0.0
-        return (self.success_count / self.triplets_processed) * 100
+        return (self.success_count / self.quartets_processed) * 100
 
     def average_duration_ms(self) -> float:
         """Calculate average processing duration per triplet.
@@ -157,9 +157,9 @@ class SessionProcessingResult(BaseModel):
         Returns:
             float: Average duration in milliseconds
         """
-        if self.triplets_processed == 0:
+        if self.quartets_processed == 0:
             return 0.0
-        return self.total_duration_ms / self.triplets_processed
+        return self.total_duration_ms / self.quartets_processed
 
     def average_tokens_per_triplet(self) -> float:
         """Calculate average tokens used per triplet.
@@ -167,6 +167,6 @@ class SessionProcessingResult(BaseModel):
         Returns:
             float: Average tokens per triplet
         """
-        if self.triplets_processed == 0:
+        if self.quartets_processed == 0:
             return 0.0
-        return self.total_tokens / self.triplets_processed
+        return self.total_tokens / self.quartets_processed

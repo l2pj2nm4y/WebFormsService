@@ -11,8 +11,11 @@ Matches pages based on PageIdentification metadata using similarity scoring:
 from dataclasses import dataclass
 from typing import Any
 
+from src.lib.logging import get_logger
 from src.models.page_identification import PageIdentification
 from src.models.schema import FormSchema
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -249,6 +252,22 @@ class PageMatcher:
 
         is_match = similarity >= self.similarity_threshold
 
+        # Debug logging for page matching analysis
+        logger.debug(
+            "page_match_comparison",
+            schema1_id=schema1.page_identifier,
+            schema1_form_name=schema1.form_name,
+            schema2_id=schema2.page_identifier,
+            schema2_form_name=schema2.form_name,
+            is_match=is_match,
+            similarity_score=round(similarity, 4),
+            threshold=self.similarity_threshold,
+            url_score=round(components.get("url", 0), 4),
+            heading_score=round(components.get("headings", 0), 4),
+            structure_score=round(components.get("structure", 0), 4),
+            navigation_score=round(components.get("navigation", 0), 4),
+        )
+
         return is_match, similarity, components
 
     def group_schemas_by_page(
@@ -279,6 +298,13 @@ class PageMatcher:
         if not schemas:
             return {}
 
+        logger.info(
+            "page_grouping_start",
+            schema_count=len(schemas),
+            similarity_threshold=self.similarity_threshold,
+            schema_identifiers=[s.page_identifier for s in schemas],
+        )
+
         groups: dict[str, list[FormSchema]] = {}
         processed_indices: set[int] = set()
 
@@ -291,18 +317,49 @@ class PageMatcher:
             group = [schema]
             processed_indices.add(i)
 
+            logger.debug(
+                "page_group_seed",
+                group_id=group_id,
+                seed_form_name=schema.form_name,
+                seed_url=schema.page_identification.url if schema.page_identification else None,
+                seed_page_headings=schema.page_identification.page_headings if schema.page_identification else None,
+                seed_form_headings=schema.page_identification.form_headings if schema.page_identification else None,
+            )
+
             # Find all matching schemas
             for j, other_schema in enumerate(schemas):
                 if j <= i or j in processed_indices:
                     continue
 
-                is_match, similarity, _ = self.are_pages_matching(schema, other_schema)
+                is_match, similarity, components = self.are_pages_matching(schema, other_schema)
 
                 if is_match:
                     group.append(other_schema)
                     processed_indices.add(j)
+                    logger.debug(
+                        "page_group_match_added",
+                        group_id=group_id,
+                        matched_schema_id=other_schema.page_identifier,
+                        matched_form_name=other_schema.form_name,
+                        similarity_score=round(similarity, 4),
+                    )
 
             groups[group_id] = group
+
+            logger.info(
+                "page_group_formed",
+                group_id=group_id,
+                group_size=len(group),
+                member_form_names=[s.form_name for s in group],
+                member_identifiers=[s.page_identifier for s in group],
+            )
+
+        logger.info(
+            "page_grouping_complete",
+            total_schemas=len(schemas),
+            groups_formed=len(groups),
+            group_sizes={gid: len(members) for gid, members in groups.items()},
+        )
 
         return groups
 

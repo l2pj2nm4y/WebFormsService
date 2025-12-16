@@ -82,3 +82,4 @@ docker-compose.override.yml
 *.bak
 temp/
 tmp/
+**/test_storage/
