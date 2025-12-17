@@ -7,12 +7,14 @@ This module provides structured logging using structlog with support for:
 - AI operation metrics (prompt, model, latency, tokens, cost)
 - File operation context (operation, path, size)
 - Error context (operation, input snapshot, system state)
+- Third-party library file logging (jsonmerge, etc.)
 """
 
 import logging
 import sys
 import uuid
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -277,3 +279,63 @@ def log_error_with_context(
         system_state=system_state,
         exc_info=True,
     )
+
+
+def configure_jsonmerge_file_logging(
+    log_file: str | Path,
+    level: int = logging.DEBUG,
+) -> logging.FileHandler:
+    """Configure jsonmerge library to log DEBUG messages to a file.
+
+    jsonmerge uses the standard logging module. This function sets up
+    a file handler to capture its merge operation details.
+
+    Args:
+        log_file: Path to the log file (will be created/appended)
+        level: Logging level (default DEBUG to capture all merge details)
+
+    Returns:
+        FileHandler: The configured handler (can be removed later with remove_handler)
+
+    Example:
+        handler = configure_jsonmerge_file_logging("./debug/jsonmerge.log")
+        # ... perform merge operations ...
+        # Optionally remove handler when done:
+        logging.getLogger("jsonmerge").removeHandler(handler)
+    """
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Get the jsonmerge logger
+    jsonmerge_logger = logging.getLogger("jsonmerge")
+    jsonmerge_logger.setLevel(level)
+
+    # Disable propagation so our handler receives messages regardless of root logger level
+    jsonmerge_logger.propagate = False
+
+    # Create file handler with detailed formatting
+    file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    file_handler.setLevel(level)
+
+    # Detailed format showing timestamp, level, and message
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(formatter)
+
+    # Add handler to jsonmerge logger
+    jsonmerge_logger.addHandler(file_handler)
+
+    return file_handler
+
+
+def remove_jsonmerge_file_logging(handler: logging.FileHandler) -> None:
+    """Remove a previously configured jsonmerge file handler.
+
+    Args:
+        handler: The handler returned by configure_jsonmerge_file_logging
+    """
+    jsonmerge_logger = logging.getLogger("jsonmerge")
+    jsonmerge_logger.removeHandler(handler)
+    handler.close()

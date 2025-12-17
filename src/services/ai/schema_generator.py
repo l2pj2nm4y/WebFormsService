@@ -58,13 +58,16 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
         CRITICAL: Extract EXACT text as it appears on the page - character-for-character accuracy is essential.
         This data is used to match schemas from the same page across multiple screenshots.
 
-        Fields to populate with EXACT text from screenshot:
-        - "page_headings": Main page-level headings or titles (exactly as shown)
-        - "form_headings": Form section headings and subsection titles (exactly as shown, preserve order)
-        - "visual_sections": Visual layout sections (header, left_navigation_panel, main_content_form, right_sidebar, footer, etc.)
-        - "navigation_buttons": Navigation button labels (exactly as shown)
-        - "progress_indicator": Progress indicator if visible (e.g., '15%', 'Step 2 of 5')
-        - "page_number": Page number if visible (e.g., '3/20', 'Page 3 of 20')
+        All page_identification properties use TimestampedValue format with timestamp from user prompt.
+
+        Fields to populate:
+        - "url": Extract from "URL: ..." in user prompt. Format: {"timestamp": "[CAPTURE_TIMESTAMP]", "value": "the_url"}
+        - "page_headings": Main page-level headings or titles (exactly as shown). Format: list of {"timestamp": "[CAPTURE_TIMESTAMP]", "value": "heading_text"}
+        - "form_headings": Form section headings and subsection titles (exactly as shown, preserve order). Format: list of {"timestamp": "[CAPTURE_TIMESTAMP]", "value": "heading_text"}
+        - "visual_sections": Visual layout sections (header, left_navigation_panel, main_content_form, right_sidebar, footer, etc.). Format: list of {"timestamp": "[CAPTURE_TIMESTAMP]", "value": "section_name"}
+        - "navigation_buttons": Navigation button labels (exactly as shown). Format: list of {"timestamp": "[CAPTURE_TIMESTAMP]", "value": "button_label"}
+        - "progress_indicator": Progress indicator if visible (e.g., '15%', 'Step 2 of 5'). Format: {"timestamp": "[CAPTURE_TIMESTAMP]", "value": "indicator_text"} or null if not visible
+        - "page_number": Page number if visible (e.g., '3/20', 'Page 3 of 20'). Format: {"timestamp": "[CAPTURE_TIMESTAMP]", "value": "page_number_text"} or null if not visible
 
         Systematically analyze the screenshot:
         - What are the most prominent headings or titles you can see?
@@ -462,82 +465,145 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
     <principle>Every field MUST have a description explaining what answer is needed</principle>
 </section_organization>
 
+<timestamped_output_format>
+    <purpose>Every property value must include the capture timestamp for temporal tracking and merge decisions</purpose>
+
+    <scalar_format>
+        For scalar values (string, number, boolean), wrap in object with timestamp and value:
+        {"timestamp": "[CAPTURE_TIMESTAMP]", "value": [actual_value]}
+
+        Examples:
+        "name": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "firstName"}
+        "required": {"timestamp": "2025-11-26T10:41:58.968Z", "value": true}
+        "description": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Enter your name"}
+    </scalar_format>
+
+    <object_format>
+        For object values (table_config, array_config, constraints, visibility_rules),
+        add timestamp as the FIRST property in the object:
+        {
+            "timestamp": "[CAPTURE_TIMESTAMP]",
+            "type": "maxLength",
+            "value": 50,
+            "message": null
+        }
+    </object_format>
+
+    <list_format>
+        For options lists, each item is wrapped with timestamp:
+        "options": [
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Male"},
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Female"}
+        ]
+    </list_format>
+
+    <timestamp_source>
+        CRITICAL: Use the exact timestamp from "Captured at: ..." in the user prompt
+        for ALL timestamped values in your response. This enables merge decisions based on recency.
+    </timestamp_source>
+</timestamped_output_format>
+
 <example_output>
 {
-    "page_identifier": "Australian citizenship by descent - Applicant details (3/22)",
+    "page_identifier": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Australian citizenship by descent - Applicant details (3/22)"},
     "page_identification": {
-        "page_headings": ["Australian Citizenship by Descent Application"],
-        "form_headings": ["Applicant Details", "Personal Information", "Travel Documents"],
-        "visual_sections": ["header", "navigation_panel", "main_content_form", "footer"],
-        "navigation_buttons": ["Previous", "Save and Continue", "Exit Application"],
-        "progress_indicator": "15% complete",
-        "page_number": "3/22"
+        "url": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "https://example.gov.au/citizenship/descent/page-3"},
+        "page_headings": [
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Australian Citizenship by Descent Application"}
+        ],
+        "form_headings": [
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Applicant Details"},
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Personal Information"},
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Travel Documents"}
+        ],
+        "visual_sections": [
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "header"},
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "navigation_panel"},
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "main_content_form"},
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "footer"}
+        ],
+        "navigation_buttons": [
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Previous"},
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Save and Continue"},
+            {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Exit Application"}
+        ],
+        "progress_indicator": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "15% complete"},
+        "page_number": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "3/22"}
     },
-    "form_name": "CitizenshipByDescentApplication",
-    "description": "Application for Australian citizenship by descent - collecting applicant's personal information and identity verification details",
+    "form_name": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "CitizenshipByDescentApplication"},
+    "description": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Application for Australian citizenship by descent - collecting applicant's personal information and identity verification details"},
     "sections": [
         {
-            "name": "PersonalInformation",
-            "description": "Basic personal details required to verify your identity and create your citizenship certificate",
-            "required": true,
+            "name": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "PersonalInformation"},
+            "description": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Basic personal details required to verify your identity and create your citizenship certificate"},
+            "required": {"timestamp": "2025-11-26T10:41:58.968Z", "value": true},
             "fields": [
                 {
-                    "name": "firstName",
-                    "type": "string",
-                    "required": true,
-                    "description": "Enter your legal first name exactly as it appears on your birth certificate or passport",
-                    "label": "First Name",
-                    "placeholder": "Enter your first name",
+                    "name": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "firstName"},
+                    "type": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "string"},
+                    "required": {"timestamp": "2025-11-26T10:41:58.968Z", "value": true},
+                    "description": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Enter your legal first name exactly as it appears on your birth certificate or passport"},
+                    "label": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "First Name"},
+                    "placeholder": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Enter your first name"},
                     "default_value": null,
                     "constraints": [
                         {
+                            "timestamp": "2025-11-26T10:41:58.968Z",
                             "type": "maxLength",
                             "value": 50,
                             "message": "First name cannot exceed 50 characters"
                         },
                         {
+                            "timestamp": "2025-11-26T10:41:58.968Z",
                             "type": "minLength",
                             "value": 1,
                             "message": "First name is required"
                         }
                     ],
                     "options": null,
-                    "sensitive": false,
+                    "sensitive": {"timestamp": "2025-11-26T10:41:58.968Z", "value": false},
                     "input_format": null,
                     "table_config": null,
                     "array_config": null
                 },
                 {
-                    "name": "gender",
-                    "type": "string",
-                    "required": true,
-                    "description": "Select your gender as recorded on official documents - if this has changed, provide documentation later",
-                    "label": "Gender",
+                    "name": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "gender"},
+                    "type": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "string"},
+                    "required": {"timestamp": "2025-11-26T10:41:58.968Z", "value": true},
+                    "description": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Select your gender as recorded on official documents - if this has changed, provide documentation later"},
+                    "label": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Gender"},
                     "placeholder": null,
                     "default_value": null,
                     "constraints": [
                         {
+                            "timestamp": "2025-11-26T10:41:58.968Z",
                             "type": "enum",
                             "value": ["Male", "Female", "Non-binary", "Prefer not to say"],
                             "message": "Please select a valid option"
                         }
                     ],
-                    "options": ["Male", "Female", "Non-binary", "Prefer not to say"],
-                    "sensitive": false,
+                    "options": [
+                        {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Male"},
+                        {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Female"},
+                        {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Non-binary"},
+                        {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Prefer not to say"}
+                    ],
+                    "sensitive": {"timestamp": "2025-11-26T10:41:58.968Z", "value": false},
                     "input_format": null,
                     "table_config": null,
                     "array_config": null
                 },
                 {
-                    "name": "dateOfBirth",
-                    "type": "date",
-                    "required": true,
-                    "description": "Select your date of birth in DD/MM/YYYY format - you must be 18 or older to apply independently",
-                    "label": "Date of Birth",
-                    "placeholder": "DD/MM/YYYY",
+                    "name": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "dateOfBirth"},
+                    "type": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "date"},
+                    "required": {"timestamp": "2025-11-26T10:41:58.968Z", "value": true},
+                    "description": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Select your date of birth in DD/MM/YYYY format - you must be 18 or older to apply independently"},
+                    "label": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Date of Birth"},
+                    "placeholder": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "DD/MM/YYYY"},
                     "default_value": null,
                     "constraints": [
                         {
+                            "timestamp": "2025-11-26T10:41:58.968Z",
                             "type": "dateRange",
                             "value": {
                                 "min": "1900-01-01",
@@ -547,37 +613,40 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
                         }
                     ],
                     "options": null,
-                    "sensitive": false,
+                    "sensitive": {"timestamp": "2025-11-26T10:41:58.968Z", "value": false},
                     "input_format": null,
                     "table_config": null,
                     "array_config": null
                 }
             ],
-            "subsections": []
+            "subsections": [],
+            "visibility_rules": []
         },
         {
-            "name": "TravelDocuments",
-            "description": "Current and previous travel documents needed to verify identity and track international movement history",
-            "required": false,
+            "name": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "TravelDocuments"},
+            "description": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Current and previous travel documents needed to verify identity and track international movement history"},
+            "required": {"timestamp": "2025-11-26T10:41:58.968Z", "value": false},
             "fields": [
                 {
-                    "name": "otherTravelDocuments",
-                    "type": "array",
-                    "required": false,
-                    "description": "List all other passports and travel documents you hold including expired passports, refugee documents, or ImmiCards",
-                    "label": "Other Travel Documents",
+                    "name": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "otherTravelDocuments"},
+                    "type": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "array"},
+                    "required": {"timestamp": "2025-11-26T10:41:58.968Z", "value": false},
+                    "description": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "List all other passports and travel documents you hold including expired passports, refugee documents, or ImmiCards"},
+                    "label": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "Other Travel Documents"},
                     "placeholder": null,
-                    "default_value": [],
+                    "default_value": {"timestamp": "2025-11-26T10:41:58.968Z", "value": []},
                     "constraints": [],
                     "options": null,
-                    "sensitive": true,
-                    "input_format": "table",
+                    "sensitive": {"timestamp": "2025-11-26T10:41:58.968Z", "value": true},
+                    "input_format": {"timestamp": "2025-11-26T10:41:58.968Z", "value": "table"},
                     "table_config": {
+                        "timestamp": "2025-11-26T10:41:58.968Z",
                         "add_button_text": "Add details",
                         "can_delete_rows": true,
                         "can_reorder_rows": false,
                         "columns": [
                             {
+                                "timestamp": "2025-11-26T10:41:58.968Z",
                                 "name": "documentType",
                                 "label": "Document Type",
                                 "type": "string",
@@ -587,6 +656,7 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
                                 "description": "Select the type of travel document from the list",
                                 "constraints": [
                                     {
+                                        "timestamp": "2025-11-26T10:41:58.968Z",
                                         "type": "enum",
                                         "value": ["Passport", "Titre de Voyage", "PLO56", "DFTTA", "ImmiCard"],
                                         "message": "Select document type"
@@ -594,6 +664,7 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
                                 ]
                             },
                             {
+                                "timestamp": "2025-11-26T10:41:58.968Z",
                                 "name": "documentNumber",
                                 "label": "Document Number",
                                 "type": "string",
@@ -603,6 +674,7 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
                                 "description": "Enter the document number exactly as shown on the document",
                                 "constraints": [
                                     {
+                                        "timestamp": "2025-11-26T10:41:58.968Z",
                                         "type": "maxLength",
                                         "value": 50,
                                         "message": "Maximum 50 characters"
@@ -610,6 +682,7 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
                                 ]
                             },
                             {
+                                "timestamp": "2025-11-26T10:41:58.968Z",
                                 "name": "issuingCountry",
                                 "label": "Issuing Country",
                                 "type": "string",
@@ -620,6 +693,7 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
                                 "constraints": []
                             },
                             {
+                                "timestamp": "2025-11-26T10:41:58.968Z",
                                 "name": "expiryDate",
                                 "label": "Expiry Date",
                                 "type": "date",
@@ -631,11 +705,13 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
                             }
                         ],
                         "row_validation": {
+                            "timestamp": "2025-11-26T10:41:58.968Z",
                             "unique_fields": ["documentNumber"],
                             "required_fields": ["documentType", "documentNumber", "issuingCountry"]
                         }
                     },
                     "array_config": {
+                        "timestamp": "2025-11-26T10:41:58.968Z",
                         "item_type": "object",
                         "item_schema": {
                             "documentType": {
@@ -663,10 +739,12 @@ Analyse the form screenshot provided in the user prompt and generate a comprehen
                         "max_items": null,
                         "allow_empty": true,
                         "unique_field": "documentNumber"
-                    }
+                    },
+                    "visibility_rules": []
                 }
             ],
-            "subsections": []
+            "subsections": [],
+            "visibility_rules": []
         }
     ]
 }

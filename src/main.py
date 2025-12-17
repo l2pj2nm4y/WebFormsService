@@ -36,20 +36,33 @@ def process(
             help="Limit number of quartets to process (for debugging)"
         ),
     ] = None,
+    debug_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--debug-dir", "-d",
+            help="Directory to write page matching debug files"
+        ),
+    ] = None,
 ) -> None:
     """Process a specific session by UUID.
 
     Example:
         python -m src.main process 550e8400-e29b-41d4-a716-446655440000
         python -m src.main process 550e8400-e29b-41d4-a716-446655440000 --limit 1
+        python -m src.main process 550e8400-e29b-41d4-a716-446655440000 --debug-dir ./debug
     """
     configure_logging()
 
-    logger.info("cli_process_session", session_id=session_id, quartet_limit=limit)
+    logger.info(
+        "cli_process_session",
+        session_id=session_id,
+        quartet_limit=limit,
+        debug_dir=str(debug_dir) if debug_dir else None,
+    )
 
     try:
         uuid = UUID(session_id)
-        result = asyncio.run(process_session(uuid, quartet_limit=limit))
+        result = asyncio.run(process_session(uuid, quartet_limit=limit, debug_dir=debug_dir))
 
         typer.echo("\n✅ Session processed successfully!")
         typer.echo(f"   Quartets: {result.quartets_processed}")
@@ -149,6 +162,94 @@ def enqueue(
         raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"❌ Failed to enqueue: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
+def merge(
+    session_id: Annotated[
+        str, typer.Argument(help="Session UUID to merge schemas for")
+    ],
+    form_threshold: Annotated[
+        float,
+        typer.Option(
+            "--form-threshold", "-f",
+            help="Form similarity threshold (0.0-1.0) - are pages from same form?"
+        ),
+    ] = 0.8,
+    page_threshold: Annotated[
+        float,
+        typer.Option(
+            "--page-threshold", "-p",
+            help="Page similarity threshold (0.0-1.0) - are pages the same within form?"
+        ),
+    ] = 0.5,
+    debug_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--debug-dir", "-d",
+            help="Directory to write page matching debug files"
+        ),
+    ] = None,
+) -> None:
+    """Merge schemas within a session by two-stage page similarity.
+
+    Two-stage matching:
+    1. Form Similarity: Are these pages from the same multi-page form?
+       (Based on URL, page_headings, structure, navigation)
+    2. Page Similarity: Are these the same page within that form?
+       (Based on form_headings - section titles unique to each page)
+
+    Pages match if they pass BOTH thresholds.
+
+    Example:
+        python -m src.main merge 550e8400-e29b-41d4-a716-446655440000
+        python -m src.main merge 550e8400-e29b-41d4-a716-446655440000 --form-threshold 0.9
+        python -m src.main merge 550e8400-e29b-41d4-a716-446655440000 --page-threshold 0.6
+        python -m src.main merge 550e8400-e29b-41d4-a716-446655440000 --debug-dir ./debug
+    """
+    from src.services.pipeline.session_merger import merge_session_schemas
+
+    configure_logging()
+
+    logger.info(
+        "cli_merge_session",
+        session_id=session_id,
+        form_threshold=form_threshold,
+        page_threshold=page_threshold,
+        debug_dir=str(debug_dir) if debug_dir else None,
+    )
+
+    try:
+        uuid = UUID(session_id)
+        result = asyncio.run(
+            merge_session_schemas(
+                uuid,
+                form_similarity_threshold=form_threshold,
+                page_similarity_threshold=page_threshold,
+                debug_dir=debug_dir,
+            )
+        )
+
+        if result.success:
+            typer.echo("\n✅ Session schemas merged successfully!")
+            metadata = result.metadata or {}
+            typer.echo(f"   Source schemas: {metadata.get('source_schema_count', 0)}")
+            typer.echo(f"   Page groups: {metadata.get('page_groups_count', 0)}")
+            typer.echo(f"   Merged saved: {metadata.get('merged_schemas_saved', 0)}")
+            typer.echo(f"   Duration: {result.duration_ms/1000:.2f}s")
+            if debug_dir:
+                typer.echo(f"   Debug output: {debug_dir}")
+        else:
+            typer.echo(f"❌ Merge failed: {result.error_message}", err=True)
+            raise typer.Exit(1)
+
+    except ValueError as e:
+        typer.echo(f"❌ Invalid UUID: {e}", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"❌ Merge failed: {e}", err=True)
+        logger.error("cli_merge_failed", error=str(e), exc_info=True)
         raise typer.Exit(1)
 
 

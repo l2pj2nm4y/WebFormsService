@@ -48,6 +48,7 @@ class TestSessionMergerIntegration:
                 url="https://example.gov/application",
                 timestamp=None,
                 page_headings=["Application Form"],
+                form_headings=["Personal Details"],  # Same form_headings for matching
             ),
         )
 
@@ -74,14 +75,15 @@ class TestSessionMergerIntegration:
                 url="https://example.gov/application",
                 timestamp=None,
                 page_headings=["Application Form"],
+                form_headings=["Personal Details"],  # Same form_headings for matching
             ),
         )
 
-        # Save schemas to session directory
-        with open(session_dir / "form1_schema.json", "w") as f:
+        # Save schemas to session directory (must end with .schema.json)
+        with open(session_dir / "form1.schema.json", "w") as f:
             json.dump(schema1.model_dump(mode="json"), f, indent=2)
 
-        with open(session_dir / "form2_schema.json", "w") as f:
+        with open(session_dir / "form2.schema.json", "w") as f:
             json.dump(schema2.model_dump(mode="json"), f, indent=2)
 
         return session_id, test_storage_dir
@@ -93,9 +95,11 @@ class TestSessionMergerIntegration:
         """Test that merge creates merged/ subdirectory."""
         session_id, base_path = test_session_with_schemas
 
-        # Run merge
+        # Run merge with thresholds that match our test data
         result = await merge_session_schemas(
-            session_id=session_id, similarity_threshold=0.5
+            session_id=session_id,
+            form_similarity_threshold=0.5,
+            page_similarity_threshold=0.5,
         )
 
         # Verify result
@@ -114,9 +118,11 @@ class TestSessionMergerIntegration:
         """Test that matching pages are merged into single schema."""
         session_id, base_path = test_session_with_schemas
 
-        # Run merge
+        # Run merge with thresholds that match our test data
         result = await merge_session_schemas(
-            session_id=session_id, similarity_threshold=0.5
+            session_id=session_id,
+            form_similarity_threshold=0.5,
+            page_similarity_threshold=0.5,
         )
 
         # Verify result metadata
@@ -126,9 +132,9 @@ class TestSessionMergerIntegration:
         assert result.metadata["page_groups_count"] == 1  # Should merge into 1 group
         assert result.metadata["merged_schemas_saved"] == 1
 
-        # Verify merged file exists
+        # Verify merged file exists (now uses GUID filenames)
         merged_dir = base_path / "sessions" / str(session_id) / "merged"
-        merged_files = list(merged_dir.glob("*_merged.json"))
+        merged_files = list(merged_dir.glob("*.json"))
         assert len(merged_files) == 1
 
         # Load and verify merged schema
@@ -136,11 +142,19 @@ class TestSessionMergerIntegration:
             merged_data = json.load(f)
 
         # Should have both fields from both schemas
-        assert merged_data["form_name"] == "Application"
+        # form_name is now timestamped: {"timestamp": "...", "value": "..."}
+        form_name_data = merged_data["form_name"]
+        form_name = form_name_data["value"] if isinstance(form_name_data, dict) else form_name_data
+        assert form_name == "Application"
         assert len(merged_data["sections"]) == 1
         assert len(merged_data["sections"][0]["fields"]) == 2
 
-        field_names = {f["name"] for f in merged_data["sections"][0]["fields"]}
+        # Field names are now timestamped: {"timestamp": "...", "value": "..."}
+        field_names = set()
+        for f in merged_data["sections"][0]["fields"]:
+            name_data = f["name"]
+            name = name_data["value"] if isinstance(name_data, dict) else name_data
+            field_names.add(name)
         assert "first_name" in field_names
         assert "last_name" in field_names
 
@@ -169,8 +183,12 @@ class TestSessionMergerIntegration:
         """Test that result includes duration_ms."""
         session_id, _ = test_session_with_schemas
 
-        # Run merge
-        result = await merge_session_schemas(session_id=session_id)
+        # Run merge with thresholds that match our test data
+        result = await merge_session_schemas(
+            session_id=session_id,
+            form_similarity_threshold=0.5,
+            page_similarity_threshold=0.5,
+        )
 
         # Verify duration
         assert result.duration_ms > 0

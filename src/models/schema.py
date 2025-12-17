@@ -7,6 +7,9 @@ These models capture the complete structure of a web form including:
 - Table/array configurations
 - Validation rules
 - Page identification metadata
+
+All scalar properties use TimestampedValue wrappers for temporal tracking,
+enabling merge decisions based on recency and property-level expiration.
 """
 
 from __future__ import annotations
@@ -16,11 +19,19 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src.models.page_identification import PageIdentification
+from src.models.timestamped import LEGACY_TIMESTAMP, TimestampedValue
 
 
 class VisibilityRule(BaseModel):
-    """Single rule that controls field or section visibility."""
+    """Single rule that controls field or section visibility.
 
+    Includes timestamp for temporal tracking during merges.
+    """
+
+    timestamp: str = Field(
+        default=LEGACY_TIMESTAMP,
+        description="ISO 8601 timestamp when this rule was observed",
+    )
     field: str = Field(..., description="Name of the field this condition depends on")
     operator: str = Field(
         ...,
@@ -30,8 +41,15 @@ class VisibilityRule(BaseModel):
 
 
 class FormFieldConstraint(BaseModel):
-    """Validation constraint for a form field."""
+    """Validation constraint for a form field.
 
+    Includes timestamp for temporal tracking during merges.
+    """
+
+    timestamp: str = Field(
+        default=LEGACY_TIMESTAMP,
+        description="ISO 8601 timestamp when this constraint was observed",
+    )
     type: str = Field(
         ...,
         description="Constraint type (maxLength, minLength, pattern, enum, min, max, etc.)",
@@ -43,8 +61,15 @@ class FormFieldConstraint(BaseModel):
 
 
 class ArrayConfig(BaseModel):
-    """Configuration for array/multi-value fields."""
+    """Configuration for array/multi-value fields.
 
+    Includes timestamp for temporal tracking during merges.
+    """
+
+    timestamp: str = Field(
+        default=LEGACY_TIMESTAMP,
+        description="ISO 8601 timestamp when this config was observed",
+    )
     item_type: str = Field(
         ..., description="Type of each array element (string, object, etc.)"
     )
@@ -67,8 +92,15 @@ class ArrayConfig(BaseModel):
 
 
 class TableColumnConfig(BaseModel):
-    """Configuration for a single column in a table input."""
+    """Configuration for a single column in a table input.
 
+    Includes timestamp for temporal tracking during merges.
+    """
+
+    timestamp: str = Field(
+        default=LEGACY_TIMESTAMP,
+        description="ISO 8601 timestamp when this column config was observed",
+    )
     name: str = Field(..., description="Column field name")
     label: str = Field(..., description="Column header text")
     type: str = Field(..., description="Column data type")
@@ -86,8 +118,15 @@ class TableColumnConfig(BaseModel):
 
 
 class TableRowValidation(BaseModel):
-    """Validation rules for table rows."""
+    """Validation rules for table rows.
 
+    Includes timestamp for temporal tracking during merges.
+    """
+
+    timestamp: str = Field(
+        default=LEGACY_TIMESTAMP,
+        description="ISO 8601 timestamp when this validation was observed",
+    )
     unique_fields: list[str] = Field(
         default_factory=list, description="Fields that must be unique across rows"
     )
@@ -97,8 +136,15 @@ class TableRowValidation(BaseModel):
 
 
 class TableConfig(BaseModel):
-    """Configuration for table/grid input fields."""
+    """Configuration for table/grid input fields.
 
+    Includes timestamp for temporal tracking during merges.
+    """
+
+    timestamp: str = Field(
+        default=LEGACY_TIMESTAMP,
+        description="ISO 8601 timestamp when this config was observed",
+    )
     add_button_text: str = Field(
         default="Add row", description="Text for add row button"
     )
@@ -117,59 +163,93 @@ class TableConfig(BaseModel):
 
 
 class FormField(BaseModel):
-    """Complete specification for a single form field."""
+    """Complete specification for a single form field.
 
-    name: str = Field(..., description="Field identifier/name")
-    type: str = Field(
+    All scalar properties use TimestampedValue wrappers for property-level
+    temporal tracking. Object types (table_config, array_config) have
+    timestamps embedded directly in their structure.
+    """
+
+    # Required fields - wrapped scalars
+    name: TimestampedValue[str] = Field(
+        ..., description="Field identifier/name with timestamp"
+    )
+    type: TimestampedValue[str] = Field(
         ...,
-        description="Field data type (string, number, boolean, date, datetime, time, email, phone, url, file, currency, percentage, array, object)",
+        description="Field data type (string, number, boolean, date, datetime, time, email, phone, url, file, currency, percentage, array, object) with timestamp",
     )
-    required: bool = Field(default=False, description="Whether field is required")
-    description: str = Field(
-        ..., description="What information the user needs to provide"
+    description: TimestampedValue[str] = Field(
+        ..., description="What information the user needs to provide, with timestamp"
     )
-    label: str | None = Field(default=None, description="Display label for the field")
-    placeholder: str | None = Field(
-        default=None, description="Placeholder text shown in the field"
+
+    # Optional scalars - wrapper is optional
+    required: TimestampedValue[bool] | None = Field(
+        default=None, description="Whether field is required, with timestamp"
     )
-    default_value: Any | None = Field(
-        default=None, description="Default value for the field"
+    label: TimestampedValue[str] | None = Field(
+        default=None, description="Display label for the field, with timestamp"
     )
+    placeholder: TimestampedValue[str] | None = Field(
+        default=None, description="Placeholder text shown in the field, with timestamp"
+    )
+    default_value: TimestampedValue[Any] | None = Field(
+        default=None, description="Default value for the field, with timestamp"
+    )
+    sensitive: TimestampedValue[bool] | None = Field(
+        default=None,
+        description="Whether field contains sensitive data (SSN, password, etc.), with timestamp",
+    )
+    input_format: TimestampedValue[str] | None = Field(
+        default=None,
+        description="Input format (e.g., 'table' for grid inputs), with timestamp",
+    )
+
+    # Lists - each item has timestamp embedded in object
     constraints: list[FormFieldConstraint] = Field(
-        default_factory=list, description="Validation constraints"
+        default_factory=list, description="Validation constraints, each with timestamp"
     )
-    options: list[str] | None = Field(
-        default=None, description="Available options for dropdown/radio fields"
-    )
-    sensitive: bool = Field(
-        default=False,
-        description="Whether field contains sensitive data (SSN, password, etc.)",
-    )
-    input_format: str | None = Field(
-        default=None, description="Input format (e.g., 'table' for grid inputs)"
-    )
-    table_config: TableConfig | None = Field(
-        default=None, description="Configuration for table/grid inputs"
-    )
-    array_config: ArrayConfig | None = Field(
-        default=None, description="Configuration for array/multi-value fields"
+    options: list[TimestampedValue[str]] | None = Field(
+        default=None,
+        description="Available options for dropdown/radio fields, each with timestamp",
     )
     visibility_rules: list[VisibilityRule] = Field(
         default_factory=list,
-        description="Rules that control when this field is visible/enabled (all rules must be satisfied)",
+        description="Rules that control when this field is visible/enabled, each with timestamp",
+    )
+
+    # Object types - timestamp embedded in object
+    table_config: TableConfig | None = Field(
+        default=None, description="Configuration for table/grid inputs, with timestamp"
+    )
+    array_config: ArrayConfig | None = Field(
+        default=None,
+        description="Configuration for array/multi-value fields, with timestamp",
     )
 
 
 class FormSection(BaseModel):
-    """Section of a form containing related fields."""
+    """Section of a form containing related fields.
 
-    name: str = Field(..., description="Section identifier/name")
-    description: str = Field(
-        ..., description="Purpose of this information group and how it will be used"
+    Scalar properties use TimestampedValue wrappers for property-level
+    temporal tracking.
+    """
+
+    # Required fields - wrapped scalars
+    name: TimestampedValue[str] = Field(
+        ..., description="Section identifier/name with timestamp"
     )
-    required: bool = Field(
-        default=False, description="Whether all fields in section are required"
+    description: TimestampedValue[str] = Field(
+        ...,
+        description="Purpose of this information group and how it will be used, with timestamp",
     )
+
+    # Optional scalars - wrapper is optional
+    required: TimestampedValue[bool] | None = Field(
+        default=None,
+        description="Whether all fields in section are required, with timestamp",
+    )
+
+    # Lists and nested structures
     fields: list[FormField] = Field(
         default_factory=list, description="Fields contained in this section"
     )
@@ -178,24 +258,33 @@ class FormSection(BaseModel):
     )
     visibility_rules: list[VisibilityRule] = Field(
         default_factory=list,
-        description="Rules that control when this section is visible/enabled (all rules must be satisfied)",
+        description="Rules that control when this section is visible/enabled, each with timestamp",
     )
 
 
 class FormSchema(BaseModel):
-    """Complete schema representation of a web form."""
+    """Complete schema representation of a web form.
 
-    page_identifier: str = Field(
-        ..., description="Unique identifier for the form page"
+    Top-level scalar properties use TimestampedValue wrappers for
+    property-level temporal tracking.
+    """
+
+    # Required fields - wrapped scalars
+    page_identifier: TimestampedValue[str] = Field(
+        ..., description="Unique identifier for the form page, with timestamp"
     )
-    form_name: str = Field(..., description="Name of the form")
-    description: str = Field(
-        ..., description="Description of the form and its purpose"
+    form_name: TimestampedValue[str] = Field(
+        ..., description="Name of the form, with timestamp"
     )
+    description: TimestampedValue[str] = Field(
+        ..., description="Description of the form and its purpose, with timestamp"
+    )
+
+    # Nested structures
     sections: list[FormSection] = Field(
         ..., description="Form sections containing fields"
     )
     page_identification: PageIdentification = Field(
         default_factory=PageIdentification,
-        description="Page-level metadata for identification and matching"
+        description="Page-level metadata for identification and matching",
     )

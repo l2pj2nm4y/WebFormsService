@@ -22,11 +22,13 @@ def _field_to_bracket_notation(field: FormField) -> str:
     Returns:
         str: Bracketed notation string like "[Required: string - Description, Constraints]"
     """
-    # Determine if required or optional
-    req_opt = "Required" if field.required else "Optional"
+    # Determine if required or optional - access .value from TimestampedValue
+    required_value = field.required.value if field.required else False
+    req_opt = "Required" if required_value else "Optional"
 
-    # Build the description part
-    parts = [field.description]
+    # Build the description part - access .value from TimestampedValue
+    description_value = field.description.value
+    parts = [description_value]
 
     # Add constraints if present
     constraints_parts = []
@@ -47,12 +49,12 @@ def _field_to_bracket_notation(field: FormField) -> str:
             constraints_parts.append(f"max: {constraint.value}")
 
     # Build final description with constraints
-    description = field.description
+    description = description_value
     if constraints_parts:
-        description = f"{field.description}, {', '.join(constraints_parts)}"
+        description = f"{description_value}, {', '.join(constraints_parts)}"
 
-    # Format: [Required/Optional: type - description]
-    return f"[{req_opt}: {field.type} - {description}]"
+    # Format: [Required/Optional: type - description] - access .value for type
+    return f"[{req_opt}: {field.type.value} - {description}]"
 
 
 def _item_schema_to_bracket_notation(field_schema: dict[str, Any]) -> str:
@@ -85,9 +87,9 @@ def _build_array_notation(field: FormField) -> list:
     """
     array_config = field.array_config
 
-    # Build metadata object with all fields (including defaults)
+    # Build metadata object with all fields (including defaults) - access .value
     metadata: dict[str, Any] = {
-        "_arrayDescription": field.description,
+        "_arrayDescription": field.description.value,
         "_minItems": array_config.min_items if array_config.min_items is not None else 0,
         "_maxItems": array_config.max_items,
         "_allowEmpty": array_config.allow_empty,
@@ -133,13 +135,14 @@ def _process_section(
     Returns:
         PromptSection: Converted section with fields and subsections
     """
-    # Build section path
-    section_path = f"{parent_path}.{section.name}" if parent_path else section.name
+    # Build section path - access .value for section name
+    section_name = section.name.value
+    section_path = f"{parent_path}.{section_name}" if parent_path else section_name
 
     # Convert fields to prompt values (bracketed notation or array notation)
     fields_dict: dict[str, str | list] = {}
     for field in section.fields:
-        fields_dict[field.name] = _field_to_prompt_value(field)
+        fields_dict[field.name.value] = _field_to_prompt_value(field)
 
     # Recursively process subsections
     subsections = []
@@ -167,8 +170,8 @@ def _process_section(
             visible_when = f'{field} {operator} "{value}"'
 
     return PromptSection(
-        name=section.name,
-        description=section.description,
+        name=section_name,
+        description=section.description.value,
         path=section_path,
         fields=fields_dict,
         subsections=subsections,
@@ -198,16 +201,16 @@ def formschema_to_promptfile(schema: FormSchema) -> PromptFile:
     """
     logger.info(
         "schema_to_prompt_conversion_start",
-        form_name=schema.form_name,
+        form_name=schema.form_name.value,
         section_count=len(schema.sections),
     )
 
     try:
-        # Build PageContext from schema and page identification
+        # Build PageContext from schema and page identification - access .value
         page_context = PageContext(
-            form_name=schema.form_name,
-            description=schema.description,
-            page_identifier=schema.page_identifier,
+            form_name=schema.form_name.value,
+            description=schema.description.value,
+            page_identifier=schema.page_identifier.value,
             url=schema.page_identification.url,
             page_headings=schema.page_identification.page_headings,
             form_headings=schema.page_identification.form_headings,
@@ -230,14 +233,14 @@ def formschema_to_promptfile(schema: FormSchema) -> PromptFile:
             sections=prompt_sections,
             metadata={
                 "generatedFrom": "schema",
-                "originalFormName": schema.form_name,
-                "originalPageIdentifier": schema.page_identifier,
+                "originalFormName": schema.form_name.value,
+                "originalPageIdentifier": schema.page_identifier.value,
             },
         )
 
         logger.info(
             "schema_to_prompt_conversion_complete",
-            form_name=schema.form_name,
+            form_name=schema.form_name.value,
             section_count=len(prompt_sections),
             total_sections_with_subsections=len(prompt_file.get_all_sections()),
             required_fields_count=len(prompt_file.get_required_fields()),
@@ -248,7 +251,7 @@ def formschema_to_promptfile(schema: FormSchema) -> PromptFile:
     except Exception as e:
         logger.error(
             "schema_to_prompt_conversion_failed",
-            form_name=schema.form_name,
+            form_name=schema.form_name.value,
             error=str(e),
             exc_info=True,
         )

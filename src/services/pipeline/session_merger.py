@@ -8,7 +8,7 @@ that represent the consolidated form structure.
 import time
 from datetime import datetime
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from src.lib.logging import get_logger
 from src.models.result import ProcessingResult
@@ -21,22 +21,32 @@ logger = get_logger(__name__)
 
 async def merge_session_schemas(
     session_id: UUID,
-    similarity_threshold: float = 0.7,
+    form_similarity_threshold: float = 0.8,
+    page_similarity_threshold: float = 0.5,
     retention_days: int = 30,
+    debug_dir: Path | str | None = None,
 ) -> ProcessingResult:
-    """Merge all schemas within a session by page similarity.
+    """Merge all schemas within a session by two-stage page similarity.
+
+    Two-stage matching:
+    1. Form Similarity: Are pages from the same multi-page form?
+       (URL, page_headings, structure, navigation)
+    2. Page Similarity: Are pages the same within that form?
+       (form_headings - section titles unique to each page)
 
     Pipeline stages:
     1. Discover session schemas
-    2. Group schemas by page matching
+    2. Group schemas by two-stage page matching
     3. Merge within groups
     4. Save merged schemas to merged/ subfolder
     5. Return processing result
 
     Args:
         session_id: Session UUID
-        similarity_threshold: Minimum similarity for page matching (0.0-1.0)
+        form_similarity_threshold: Threshold for same-form detection (0.0-1.0)
+        page_similarity_threshold: Threshold for same-page detection (0.0-1.0)
         retention_days: Days to retain schema versions
+        debug_dir: Directory to write page matching debug files. If None, no debug output.
 
     Returns:
         ProcessingResult: Result with success status and merge statistics
@@ -46,7 +56,8 @@ async def merge_session_schemas(
     logger.info(
         "session_merge_start",
         session_id=str(session_id),
-        similarity_threshold=similarity_threshold,
+        form_similarity_threshold=form_similarity_threshold,
+        page_similarity_threshold=page_similarity_threshold,
         retention_days=retention_days,
     )
 
@@ -124,8 +135,8 @@ async def merge_session_schemas(
                     "session_merger_schema_validated",
                     session_id=str(session_id),
                     schema_path=schema_path,
-                    form_name=schema_dict.form_name,
-                    page_identifier=schema_dict.page_identifier,
+                    form_name=schema_dict.form_name.value,
+                    page_identifier=schema_dict.page_identifier.value,
                     section_count=len(schema_dict.sections),
                 )
 
@@ -168,8 +179,12 @@ async def merge_session_schemas(
         from src.services.merging.page_matcher import PageMatcher
         from src.services.merging.schema_merger import SchemaMerger
 
-        page_matcher = PageMatcher(similarity_threshold=similarity_threshold)
-        schema_merger = SchemaMerger(retention_days=retention_days)
+        page_matcher = PageMatcher(
+            form_similarity_threshold=form_similarity_threshold,
+            page_similarity_threshold=page_similarity_threshold,
+            debug_dir=debug_dir,
+        )
+        schema_merger = SchemaMerger(retention_days=retention_days, debug_dir=debug_dir)
 
         # Group schemas by page
         schema_objects = [s[0] for s in schemas]
@@ -178,7 +193,7 @@ async def merge_session_schemas(
             "session_merger_grouping_schemas",
             session_id=str(session_id),
             schema_count=len(schema_objects),
-            schema_identifiers=[s.page_identifier for s in schema_objects],
+            schema_identifiers=[s.page_identifier.value for s in schema_objects],
         )
 
         page_groups = page_matcher.group_schemas_by_page(schema_objects)
@@ -197,7 +212,7 @@ async def merge_session_schemas(
                 session_id=str(session_id),
                 page_id=page_id,
                 schema_count=len(group_schemas),
-                form_names=[s.form_name for s in group_schemas],
+                form_names=[s.form_name.value for s in group_schemas],
             )
 
         # Merge within each group
@@ -234,7 +249,7 @@ async def merge_session_schemas(
                 "session_merger_group_merged",
                 session_id=str(session_id),
                 page_id=page_id,
-                merged_form_name=merged_schema.form_name,
+                merged_form_name=merged_schema.form_name.value,
                 merged_section_count=len(merged_schema.sections),
                 merged_field_count=sum(len(section.fields) for section in merged_schema.sections),
             )
@@ -252,22 +267,27 @@ async def merge_session_schemas(
 
         for page_id, schema in merged_schemas.items():
             try:
+                # Generate a unique GUID for this merged group
+                group_guid = str(uuid4())
+
                 logger.debug(
                     "session_merger_saving_schema",
                     session_id=str(session_id),
                     page_id=page_id,
+                    group_guid=group_guid,
                 )
 
                 # Convert to JSON
                 schema_json = schema.model_dump_json(indent=2)
 
-                # Save to merged/ subfolder (encode to bytes for storage)
-                merged_path = str(merged_dir / f"{page_id}_merged.json")
+                # Save to merged/ subfolder with GUID filename
+                merged_path = str(merged_dir / f"{group_guid}.json")
 
                 logger.debug(
                     "session_merger_writing_file",
                     session_id=str(session_id),
                     page_id=page_id,
+                    group_guid=group_guid,
                     merged_path=merged_path,
                     content_size=len(schema_json),
                 )
@@ -280,6 +300,7 @@ async def merge_session_schemas(
                     "merged_schema_saved",
                     session_id=str(session_id),
                     page_id=page_id,
+                    group_guid=group_guid,
                     merged_path=merged_path,
                     field_count=sum(
                         len(section.fields) for section in schema.sections
@@ -310,7 +331,8 @@ async def merge_session_schemas(
                 "source_schema_count": len(schemas),
                 "page_groups_count": len(page_groups),
                 "merged_schemas_saved": saved_count,
-                "similarity_threshold": similarity_threshold,
+                "form_similarity_threshold": form_similarity_threshold,
+                "page_similarity_threshold": page_similarity_threshold,
                 "retention_days": retention_days,
                 "merged_directory": str(merged_dir),
             },

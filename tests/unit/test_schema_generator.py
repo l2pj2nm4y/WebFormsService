@@ -155,8 +155,8 @@ class TestSchemaGenerator:
             # Verify result
             assert isinstance(form_schema, FormSchema)
             assert form_schema == sample_form_schema
-            assert form_schema.page_identifier == sample_form_schema.page_identifier
-            assert form_schema.form_name == sample_form_schema.form_name
+            assert form_schema.page_identifier.value == sample_form_schema.page_identifier.value
+            assert form_schema.form_name.value == sample_form_schema.form_name.value
             assert len(form_schema.sections) == 2
 
             # Verify metrics

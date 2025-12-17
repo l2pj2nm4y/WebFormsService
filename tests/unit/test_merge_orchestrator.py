@@ -53,6 +53,7 @@ class TestMergeOrchestrator:
                 url="https://example.gov/form",
                 timestamp=None,
                 page_headings=["Application Form"],
+                form_headings=["Personal Details"],  # Same form_headings for matching
             ),
         )
 
@@ -79,6 +80,7 @@ class TestMergeOrchestrator:
                 url="https://example.gov/form",
                 timestamp=None,
                 page_headings=["Application Form"],
+                form_headings=["Personal Details"],  # Same form_headings for matching
             ),
         )
 
@@ -96,14 +98,16 @@ class TestMergeOrchestrator:
         orchestrator = MergeOrchestrator(
             base_path=tmp_path,
             output_subdir="merged",
-            similarity_threshold=0.7,
+            form_similarity_threshold=0.8,
+            page_similarity_threshold=0.5,
             retention_days=30,
         )
 
         assert orchestrator.base_path == tmp_path
         assert orchestrator.output_dir == tmp_path / "merged"
         assert orchestrator.output_dir.exists()
-        assert orchestrator.page_matcher.similarity_threshold == 0.7
+        assert orchestrator.page_matcher.form_similarity_threshold == 0.8
+        assert orchestrator.page_matcher.page_similarity_threshold == 0.5
         assert orchestrator.schema_merger.retention_days == 30
 
     def test_load_schemas_from_sessions(self, temp_session_dir: Path) -> None:
@@ -134,7 +138,9 @@ class TestMergeOrchestrator:
     def test_group_and_merge_schemas(self, temp_session_dir: Path) -> None:
         """Test grouping and merging schemas by page."""
         orchestrator = MergeOrchestrator(
-            base_path=temp_session_dir, similarity_threshold=0.5
+            base_path=temp_session_dir,
+            form_similarity_threshold=0.5,
+            page_similarity_threshold=0.5,
         )
 
         schemas = orchestrator.load_schemas_from_sessions()
@@ -145,8 +151,8 @@ class TestMergeOrchestrator:
         page_id = list(merged.keys())[0]
         merged_schema = merged[page_id]
 
-        # Should have both fields from both schemas
-        field_names = [f.name for f in merged_schema.sections[0].fields]
+        # Should have both fields from both schemas - access .value for TimestampedValue
+        field_names = [f.name.value for f in merged_schema.sections[0].fields]
         assert "field1" in field_names
         assert "field2" in field_names
 
@@ -161,7 +167,9 @@ class TestMergeOrchestrator:
     def test_save_merged_schemas(self, temp_session_dir: Path) -> None:
         """Test saving merged schemas to files."""
         orchestrator = MergeOrchestrator(
-            base_path=temp_session_dir, similarity_threshold=0.5
+            base_path=temp_session_dir,
+            form_similarity_threshold=0.5,
+            page_similarity_threshold=0.5,
         )
 
         schemas = orchestrator.load_schemas_from_sessions()
@@ -182,13 +190,17 @@ class TestMergeOrchestrator:
             saved_data = json.load(f)
 
         assert saved_data["_merge_metadata"] == metadata
-        assert saved_data["form_name"] == "Application"
+        # form_name is now a TimestampedValue - access the value
+        form_name_data = saved_data["form_name"]
+        form_name = form_name_data["value"] if isinstance(form_name_data, dict) else form_name_data
+        assert form_name == "Application"
 
     def test_generate_merge_metadata(self, temp_session_dir: Path) -> None:
         """Test metadata generation."""
         orchestrator = MergeOrchestrator(
             base_path=temp_session_dir,
-            similarity_threshold=0.5,
+            form_similarity_threshold=0.5,
+            page_similarity_threshold=0.5,
             retention_days=30,
         )
 
@@ -200,7 +212,8 @@ class TestMergeOrchestrator:
         assert metadata["source_count"] == 2
         assert metadata["page_groups_count"] == 1
         assert metadata["retention_days"] == 30
-        assert metadata["similarity_threshold"] == 0.5
+        assert metadata["form_similarity_threshold"] == 0.5
+        assert metadata["page_similarity_threshold"] == 0.5
         assert "merge_timestamp" in metadata
         assert str(temp_session_dir) in metadata["base_path"]
 
@@ -209,7 +222,9 @@ class TestMergeOrchestrator:
     ) -> None:
         """Test complete merge workflow."""
         orchestrator = MergeOrchestrator(
-            base_path=temp_session_dir, similarity_threshold=0.5
+            base_path=temp_session_dir,
+            form_similarity_threshold=0.5,
+            page_similarity_threshold=0.5,
         )
 
         results = orchestrator.merge_all_sessions()

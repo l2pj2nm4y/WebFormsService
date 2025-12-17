@@ -83,3 +83,4 @@ docker-compose.override.yml
 temp/
 tmp/
 **/test_storage/
+debug/

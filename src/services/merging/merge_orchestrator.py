@@ -40,22 +40,30 @@ class MergeOrchestrator:
         self,
         base_path: Path | str,
         output_subdir: str = "merged",
-        similarity_threshold: float = 0.7,
+        form_similarity_threshold: float = 0.8,
+        page_similarity_threshold: float = 0.5,
         retention_days: int = 30,
+        debug_dir: Path | str | None = None,
     ):
         """Initialize merge orchestrator.
 
         Args:
             base_path: Base directory containing session subdirectories
             output_subdir: Subdirectory name for merged output (created under base_path)
-            similarity_threshold: Minimum similarity score for page matching
+            form_similarity_threshold: Minimum form similarity for same-form detection
+            page_similarity_threshold: Minimum page similarity for same-page detection
             retention_days: Days to retain schema versions
+            debug_dir: Directory to write page matching debug files. If None, no debug output.
         """
         self.base_path = Path(base_path)
         self.output_dir = self.base_path / output_subdir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.page_matcher = PageMatcher(similarity_threshold=similarity_threshold)
+        self.page_matcher = PageMatcher(
+            form_similarity_threshold=form_similarity_threshold,
+            page_similarity_threshold=page_similarity_threshold,
+            debug_dir=debug_dir,
+        )
         self.schema_merger = SchemaMerger(retention_days=retention_days)
 
     def load_schemas_from_sessions(
@@ -202,7 +210,8 @@ class MergeOrchestrator:
             "source_count": len(schemas),
             "page_groups_count": len(merged_schemas),
             "retention_days": self.schema_merger.retention_days,
-            "similarity_threshold": self.page_matcher.similarity_threshold,
+            "form_similarity_threshold": self.page_matcher.form_similarity_threshold,
+            "page_similarity_threshold": self.page_matcher.page_similarity_threshold,
             "base_path": str(self.base_path),
             "output_dir": str(self.output_dir),
         }

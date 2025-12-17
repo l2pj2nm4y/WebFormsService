@@ -11,6 +11,7 @@ Orchestrates complete session processing workflow:
 
 import asyncio
 import time
+from pathlib import Path
 from uuid import UUID
 
 from src.lib.config import get_config
@@ -115,13 +116,16 @@ async def _process_quartets_sequential(
 
 
 async def process_session(
-    session_id: UUID, quartet_limit: int | None = None
+    session_id: UUID,
+    quartet_limit: int | None = None,
+    debug_dir: Path | str | None = None,
 ) -> SessionProcessingResult:
     """Process a complete session: discover quartets, generate schemas, aggregate results.
 
     Args:
         session_id: Session UUID to process
         quartet_limit: Optional limit on number of quartets to process (for debugging)
+        debug_dir: Directory to write page matching debug files. If None, no debug output.
 
     Returns:
         SessionProcessingResult: Aggregate results with metrics
@@ -191,8 +195,10 @@ async def process_session(
 
             merge_result = await merge_session_schemas(
                 session_id=session_id,
-                similarity_threshold=0.7,
+                form_similarity_threshold=0.8,
+                page_similarity_threshold=0.5,
                 retention_days=30,
+                debug_dir=debug_dir,
             )
 
             if merge_result.success and merge_result.metadata:
